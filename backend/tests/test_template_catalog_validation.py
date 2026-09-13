@@ -25,12 +25,16 @@ import json
 import os
 import re
 
+import pytest
 import yaml
 
 from app.services.template_service import TemplateService
 
-TEMPLATES_DIR = TemplateService.LOCAL_TEMPLATES_DIR
-INDEX_PATH = os.path.join(TEMPLATES_DIR, "index.json")
+# By default this certifies the bundled catalog. The official registry
+# (jhd3197/serverkit-templates) points these at its own tree from CI, so a
+# template is held to the installer's rules before merging publishes it.
+TEMPLATES_DIR = os.environ.get("SERVERKIT_TEMPLATES_DIR") or TemplateService.LOCAL_TEMPLATES_DIR
+INDEX_PATH = os.environ.get("SERVERKIT_TEMPLATES_INDEX") or os.path.join(TEMPLATES_DIR, "index.json")
 
 # Built-in variables the installer always injects into the substitution map
 # (see ``_prepare_install_variables`` / ``install_template`` — both seed
@@ -286,6 +290,8 @@ def test_index_carries_the_engine_block_for_engine_templates():
     )
 
 
+@pytest.mark.skipif(bool(os.environ.get("SERVERKIT_TEMPLATES_DIR")),
+                    reason="build_repo_index() reads the bundled catalog, not an external registry tree")
 def test_build_repo_index_covers_disk():
     """``build_repo_index()`` (the publishable generated index consumed by the
     repo-sync flow) must enumerate every template currently on disk."""

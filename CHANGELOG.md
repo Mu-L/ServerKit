@@ -18,7 +18,19 @@ Earlier development history remains in
 The [agent](https://github.com/jhd3197/serverkit-agent/releases) has its own
 release history; historical `agent-v*` tags are not panel releases.
 
-## [1.11.1] - Unreleased
+## [Unreleased]
+
+### Changed
+
+- Let the template catalog certification test point at an external registry
+  tree (`SERVERKIT_TEMPLATES_DIR`, `SERVERKIT_TEMPLATES_INDEX`), so the
+  official template registry's CI holds every template to the installer's
+  rules before a merge publishes it.
+
+## [1.11.4] - 2026-09-12
+
+Covers the 1.11.1 through 1.11.3 version bumps, which shipped only as dev
+prerelease builds.
 
 ### Added
 
@@ -29,6 +41,15 @@ release history; historical `agent-v*` tags are not panel releases.
 
 ### Fixed
 
+- Stop the Connect client when ServerKit Cloud revokes its access: honor the
+  relay's close-reason frame, which production edges deliver where a custom
+  close code is stripped, and treat a revoked long-poll the same way instead
+  of reconnecting forever.
+- Refetch the signing keys once when a Cloud command arrives signed with a key
+  the cached JWKS predates, and only then refuse an unknown key.
+- Warn on the first failure of a metrics build streak and after five empty
+  collections, instead of logging silently at debug level.
+- Fix first-run sidebar preferences and extension loading.
 - Require explicit consent before sending diagnostics or collecting logs, and
   redact structured secrets and short authorization credentials locally.
 - Recover unacknowledged log batches within their byte and expiry limits;
@@ -40,7 +61,7 @@ release history; historical `agent-v*` tags are not panel releases.
 - Fix backend test-factory compliance and the settings browser-test timing race.
 - Update the demo link in all four README translations.
 
-[Source changes since 1.11.0](https://github.com/jhd3197/ServerKit/compare/v1.11.0...v1.11.1).
+[Source changes since 1.11.0](https://github.com/jhd3197/ServerKit/compare/v1.11.0...v1.11.4).
 
 ## [1.11.0] - 2026-09-08
 
@@ -972,7 +993,8 @@ require their matching extensions. Review the installed extensions after updatin
 - Established the earliest published panel release covered by this backfill, with the Flask/React control panel, application and database management, Docker operations, backups and server monitoring.
 - Moved the agent into the separate serverkit-agent repository and introduced a dedicated panel release workflow.
 
-[1.11.1]: https://github.com/jhd3197/ServerKit/releases/tag/v1.11.1
+[Unreleased]: https://github.com/jhd3197/ServerKit/compare/v1.11.4...dev
+[1.11.4]: https://github.com/jhd3197/ServerKit/releases/tag/v1.11.4
 [1.11.0]: https://github.com/jhd3197/ServerKit/releases/tag/v1.11.0
 [1.10.0]: https://github.com/jhd3197/ServerKit/releases/tag/v1.10.0
 [1.9.29]: https://github.com/jhd3197/ServerKit/releases/tag/v1.9.29
