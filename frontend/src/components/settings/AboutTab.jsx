@@ -7,6 +7,8 @@ import {
 import ServerKitLogo from '../ServerKitLogo';
 import { Button } from '@/components/ui/button';
 import useSettingFocus from '../../hooks/useSettingFocus';
+import { useManagedProfile } from '../../contexts/useManagedProfile';
+import ManagedCard from '../ManagedCard';
 import { useTranslation } from 'react-i18next';
 
 const STAR_PROMPT_KEY = 'serverkit-star-prompt-dismissed';
@@ -28,6 +30,11 @@ const AboutTab = () => {
     const [updateError, setUpdateError] = useState(null);
     const cancelledRef = useRef(false);
     const register = useSettingFocus();
+    // Updates held by ServerKit Cloud (plan 25): the self-update surface is
+    // the managed card in miniature. The panel still updates itself — the
+    // card says so.
+    const { isControlHeld, profile: managedProfile } = useManagedProfile();
+    const updatesManaged = isControlHeld('self-update');
 
     useEffect(() => () => { cancelledRef.current = true; }, []);
 
@@ -141,7 +148,9 @@ const AboutTab = () => {
                 </p>
 
                 <div className="update-check">
-                    {!updateInfo ? (
+                    {updatesManaged ? (
+                        <ManagedCard capability="updates" profile={managedProfile} compact />
+                    ) : !updateInfo ? (
                         <Button
                             variant="outline"
                             size="sm"

@@ -432,6 +432,10 @@ def status() -> dict:
 def disconnect(remove_key: bool = False) -> dict:
     """Forget the pairing locally. Does NOT revoke anything on ServerKit Cloud."""
     stop_relay_client()  # no-op unless the client runs in this process
+    # The managed profile belongs to the pairing and leaves with it: a panel
+    # that is no longer connected is not managed (plan 25).
+    from app.services import connect_managed_profile
+    connect_managed_profile.clear('disconnected')
     removed = []
     for path in (connect_file_path(), state_file_path()):
         if os.path.exists(path):
@@ -773,6 +777,7 @@ class RelayClient:
                     # Same terminal handling as the ws path: limited mode is
                     # where a panel behind a code-stripping edge learns it.
                     self._set_state('revoked', 'revoked', transport=None)
+                    self._clear_managed_profile()
                     logger.warning('Connect relay: device revoked on ServerKit Cloud; stopping')
                     return
                 ws_blocked_until = 0.0  # time to re-probe WS
@@ -786,6 +791,7 @@ class RelayClient:
 
             if kind == 'revoked':
                 self._set_state('revoked', 'revoked', transport=None)
+                self._clear_managed_profile()
                 logger.warning('Connect relay: device revoked on ServerKit Cloud; stopping')
                 return
 
@@ -803,6 +809,16 @@ class RelayClient:
 
             self._set_state('paired_offline', reason, transport=None)
             self._sleep(backoff_delay(attempt))
+
+    def _clear_managed_profile(self):
+        """A revoked panel is not managed: lift the profile immediately
+        (plan 25 "Revoked or unpaired")."""
+        try:
+            from app.services import connect_managed_profile
+            connect_managed_profile.clear('revoked', app=self.app)
+        except Exception:
+            logger.warning('Connect relay: could not lift the managed profile',
+                           exc_info=True)
 
     def _note_attempt(self):
         now = time.time()

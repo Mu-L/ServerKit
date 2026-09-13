@@ -24,6 +24,8 @@ import SchedulesTable from '../components/backups/SchedulesTable';
 import AddScheduleModal from '../components/backups/AddScheduleModal';
 import { useBackupSchedules } from '../hooks/useBackupSchedules';
 import StorageDestinations from '../components/backups/StorageDestinations';
+import { useManagedProfile } from '../contexts/useManagedProfile';
+import ManagedCard from '../components/ManagedCard';
 import { useTopbarActions, useTopbarChrome } from '@/hooks/useTopbarActions';
 import { useTableSort } from '@/hooks/useTableSort';
 import { useColumnVisibility } from '@/hooks/useColumnVisibility';
@@ -131,6 +133,10 @@ const Backups = () => {
     const [stats, setStats] = useState(null);
     const scheduleStore = useBackupSchedules();
     const { schedules, refresh: reloadSchedules } = scheduleStore;
+    // Backup scheduling held by ServerKit Cloud (plan 25): the page and local
+    // restore stay, the scheduling and destination surfaces become the card.
+    const { isControlHeld, profile: managedProfile } = useManagedProfile();
+    const backupsManaged = isControlHeld('backup-scheduling');
     const [config, setConfig] = useState(null);
     const [storageConfig, setStorageConfig] = useState(null);
     const [costSummary, setCostSummary] = useState(null);
@@ -671,7 +677,7 @@ const Backups = () => {
     // that tab was asking.
     useTopbarActions(() => (
         <>
-            {activeTab === 'schedules' ? (
+            {activeTab === 'schedules' && !backupsManaged ? (
                 <Button size="sm" onClick={() => setShowScheduleModal(true)}>
                     <Plus size={16} />
                     {t('app.backups.newSchedule', 'New schedule')}
@@ -690,7 +696,7 @@ const Backups = () => {
                 />
             )}
         </>
-    ), [activeTab, search]);
+    ), [activeTab, search, backupsManaged]);
 
     // The chrome acts on the snapshot table, so it is only published while that
     // section is on screen — the other tabs are forms and a KPI band, with
@@ -795,6 +801,9 @@ const Backups = () => {
             )}
 
             {activeTab === 'schedules' && (
+                backupsManaged ? (
+                    <ManagedCard capability="backups_schedule" profile={managedProfile} compact />
+                ) : (
                 <>
                     {schedules.length === 0 ? (
                         <EmptyState
@@ -813,9 +822,13 @@ const Backups = () => {
                         />
                     )}
                 </>
+                )
             )}
 
             {activeTab === 'storage' && (
+                backupsManaged ? (
+                    <ManagedCard capability="backups_schedule" profile={managedProfile} compact />
+                ) : (
                 <>
                     <StorageDestinations
                         stats={stats}
@@ -1035,6 +1048,7 @@ const Backups = () => {
                         </SharedCardContent>
                     </SharedCard>
                 </>
+                )
             )}
 
             {activeTab === 'settings' && (
