@@ -38,6 +38,13 @@ release history; historical `agent-v*` tags are not panel releases.
   `/opt`, so the Log Files tab could read — or clear — the backend `.env`
   and database. The log viewer now shares the file manager's protected-roots
   exclusion.
+- Make extension hot-load work on a live panel. Flask refuses to register a
+  blueprint once the app has served its first request, so an extension
+  installed on a running panel had no API routes until a restart — its pages
+  loaded, but every call failed, with POSTs surfacing as a 405 (the Malware
+  Scanner custom-path scan, #144). Blueprint registration now waives Flask's
+  setup guard for the duration of the call, which is safe in the panel's
+  single-worker threaded deployment.
 
 ## [1.11.4] - 2026-09-12
 
