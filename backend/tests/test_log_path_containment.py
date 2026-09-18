@@ -20,6 +20,7 @@ import os
 
 import pytest
 
+from app.services.file_service import FileService
 from app.services.log_service import LogService
 
 
@@ -79,3 +80,44 @@ def test_paths_inside_the_root_still_pass(roots):
     assert LogService.is_path_allowed(os.path.join(roots['allowed'], 'app.log'))
     assert LogService.is_path_allowed(
         os.path.join(roots['allowed'], 'nested', '..', 'app.log'))
+
+
+# --------------------------------------------------------------------------- #
+# Panel-internal roots are never allowed, even under an allowed root
+# --------------------------------------------------------------------------- #
+def test_protected_roots_are_shared_with_file_service():
+    """One source of truth: LogService must not grow its own copy of the
+    panel-internal list and drift away from FileService's."""
+    assert LogService.PROTECTED_ROOTS is FileService.PROTECTED_ROOTS
+
+
+def test_install_dir_is_rejected_even_when_its_parent_is_allowed(monkeypatch):
+    """On the install.sh layout the install dir sits under the allowed root
+    /opt, so reachability must come from the exclusion, not from the allowed
+    list happening not to contain the parent."""
+    parent = os.path.dirname(FileService._INSTALL_DIR)
+    monkeypatch.setattr(LogService, 'ALLOWED_LOG_DIRECTORIES', [parent])
+
+    assert not LogService.is_path_allowed(FileService._INSTALL_DIR)
+    assert not LogService.is_path_allowed(
+        os.path.join(FileService._INSTALL_DIR, '.env'))
+    assert not LogService.is_path_allowed(
+        os.path.join(FileService._BACKEND_DIR, 'config.py'))
+
+
+def test_clear_log_refuses_a_panel_secret(monkeypatch):
+    """The exclusion also gates truncation, through clear_log.
+
+    The target deliberately does not exist, so if the guard regresses the
+    call falls through to 'Log file not found' instead of running truncate
+    against a real file.
+    """
+    parent = os.path.dirname(FileService._INSTALL_DIR)
+    monkeypatch.setattr(LogService, 'ALLOWED_LOG_DIRECTORIES', [parent])
+    target = os.path.join(
+        FileService._INSTALL_DIR, '.env-not-present-for-this-test')
+
+    result = LogService.clear_log(target)
+
+    assert result['success'] is False
+    assert result['error'] == 'Access denied: path not in allowed directories'

@@ -33,6 +33,11 @@ release history; historical `agent-v*` tags are not panel releases.
   begins with an allowed root, such as `/opt-private` next to `/opt`, was
   treated as though it sat inside that root and could be read, searched and
   cleared through the Log Files tab.
+- Keep panel-internal files out of the log viewer entirely. On the standard
+  install layout the panel's own directory sits under the allowed root
+  `/opt`, so the Log Files tab could read — or clear — the backend `.env`
+  and database. The log viewer now shares the file manager's protected-roots
+  exclusion.
 
 ## [1.11.4] - 2026-09-12
 

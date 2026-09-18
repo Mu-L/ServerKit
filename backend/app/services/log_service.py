@@ -7,6 +7,7 @@ import threading
 import queue
 
 from app import paths
+from app.services.file_service import FileService
 from app.utils.formatting import format_bytes
 from app.utils.system import (run_privileged, privileged_cmd, is_command_available,
                              run_checked, sourced_result)
@@ -35,12 +36,26 @@ class LogService:
         '/opt',
     ]
 
+    # Panel-internal directories that must NEVER be reachable through the log
+    # viewer, even for an admin: the backend .env (JWT_SECRET_KEY, encryption
+    # key, DB creds), the SQLite instance dir and the generated deploy config
+    # all live here. On the documented install.sh layout the install dir sits
+    # under the allowed root /opt, so without this exclusion the viewer could
+    # read — and, through clear_log, truncate — the panel's own secrets.
+    # Shared with FileService (GHSA-rm3m-9mvw-68fh) so the two surfaces
+    # cannot drift apart.
+    PROTECTED_ROOTS = FileService.PROTECTED_ROOTS
+
     @classmethod
     def is_path_allowed(cls, filepath: str) -> bool:
         """Check if the filepath is within allowed directories."""
         try:
             # Resolve the absolute path to prevent traversal attacks
             real_path = os.path.realpath(filepath)
+
+            if any(real_path == root or real_path.startswith(root + os.sep)
+                   for root in cls.PROTECTED_ROOTS):
+                return False
 
             # Compare whole path segments, the way FileService.is_path_allowed
             # does. A bare startswith is a text test, not a containment test:
