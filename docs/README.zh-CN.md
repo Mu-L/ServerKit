@@ -434,6 +434,8 @@ TRC-20 手续费最低——通常不到 1 美元——因此最适合小额捐�
 **[LocalKit](https://github.com/jhd3197/LocalKit)** — 一键创建本地 WordPress 站点。每个站点都作为独立隔离的 Docker Compose 项目运行，你还可以通过 `serverkit-localkit` 扩展，直接把代码推送、或把数据库推送/拉取到你的 ServerKit 服务器。
 
 **[DeviceKit](https://github.com/jhd3197/DeviceKit)** — 统一的 Android 设备集群与测试自动化平台。在一个仪表盘中控制整个设备集群——运行自动化任务、实时串流屏幕、捕捉视觉回归，并借助 AI 驱动的分析排查故障。
+**[Vela](https://github.com/jhd3197/vela)** — 你的个人应用服务器。在一个浏览器仪表盘中安装、运行和管理本地应用,应用、设置和数据都保留在你自己的机器上——Windows、macOS 和 Linux 版本均可自动更新,另提供 iOS PWA。已经在使用 ServerKit?将仓库中的 `serverkit.yaml` 作为新服务导入,即可一键部署。
+
 
 ---
 
