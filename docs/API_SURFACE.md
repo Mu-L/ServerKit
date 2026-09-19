@@ -219,6 +219,7 @@ Regenerate (backend/):
 - `GET /builds/apps/{app_id}/nixpacks-plan`
 - `GET /builds/deployments/{deployment_id}`
 - `GET /builds/deployments/{deployment_id}/diff`
+- `GET /connect/managed-profile`
 - `GET /connect/status`
 - `GET /connections`
 - `GET /connections/`
