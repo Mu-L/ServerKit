@@ -247,6 +247,19 @@ class TestSandboxService:
                     'detail': detail,
                     'duration_s': round(time.monotonic() - started, 1),
                 }
+                runtime_path = work_dir / f'{distro}.runtime.json'
+                if runtime_path.is_file():
+                    try:
+                        measurement = json.loads(runtime_path.read_text())
+                        # Raw samples stay in the per-run artifact; compact evidence
+                        # travels with the existing results API and log summary.
+                        results[distro]['runtime_measurement'] = {
+                            key: value for key, value in measurement.items() if key != 'samples'
+                        }
+                    except (OSError, ValueError):
+                        results[distro]['runtime_measurement'] = {
+                            'status': 'failed', 'reason': 'runtime artifact unreadable',
+                        }
                 run.results = results
                 db.session.commit()
 
@@ -345,6 +358,33 @@ class TestSandboxService:
                 timeout=15)
             if probe['success']:
                 log.write('healthy\n')
-                return True, 'install + health OK'
+                detail = cls._measure_runtime(container, log)
+                return True, f'install + health OK; runtime {detail}'
             time.sleep(2)
         return False, 'install OK but health endpoint never came up'
+
+    @staticmethod
+    def _measure_runtime(container, log):
+        """Observe after install; measurement failure is distinct from install failure."""
+        log.write('\n===== post-install runtime baseline (60s settle + 120s sample) =====\n')
+        log.flush()
+        measured = run_checked(
+            ['docker', 'exec', container, '/opt/serverkit/venv/bin/python',
+             '/src/scripts/test/measure-installed-runtime.py',
+             '--output', '/tmp/serverkit-runtime.json'],
+            stdout=log, stderr=subprocess.STDOUT, timeout=240)
+        artifact = Path(log.name).with_suffix('.runtime.json')
+        copied = run_checked(
+            ['docker', 'cp', f'{container}:/tmp/serverkit-runtime.json', str(artifact)],
+            timeout=30)
+        if not copied['success']:
+            artifact.write_text(json.dumps({
+                'status': 'failed', 'reason': 'runtime artifact could not be collected',
+            }))
+        if measured['success'] and copied['success']:
+            try:
+                if json.loads(artifact.read_text()).get('status') == 'measured':
+                    return 'measured (see log/artifact)'
+            except (OSError, ValueError):
+                pass
+        return 'unavailable/failed (see log/artifact)'

@@ -117,11 +117,24 @@ scripts/test/output/<run-id>/
     install-status                ("OK" or "FAIL")
     pytest.log
     pytest-report.json
+    runtime.json                   (post-install resource observation)
   sk-test-ubuntu24-<id>/ ...
   sk-test-debian12-<id>/ ...
 ```
 
 ## Update & uninstall coverage
+
+Full VM installs now wait 60 seconds after the health check, then collect a
+120-second passive runtime baseline before pytest. The HTML report shows median
+and sampled-peak cgroup memory, and median/p95 CPU per measured service. Raw data
+is in `runtime.json`; unavailable/failed measurements are shown explicitly and
+do not turn a successful install into a failed install. Test Sandbox full mode
+uses the same sampler and saves `<distro>.runtime.json` beside its log.
+
+These short observations help identify regressions, but parallel VM/container
+work can affect them. Quick/provision checks do not run the panel and cannot
+measure its runtime overhead. See [measurement definitions and longer baseline
+commands](../../docs/METRICS.md#passive-linux-runtime-sampler).
 
 Alongside `vm-install.sh`, two more "run inside the VM" scripts exercise the
 other lifecycle stages end-to-end (same contract: log to

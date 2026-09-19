@@ -197,6 +197,7 @@ function Test-VmInstall {
 
     & $MpExe transfer "${Vm}:/var/log/serverkit-test-install.log" "$VmOut\vm-install.log" 2>&1 | Out-Null
     & $MpExe transfer "${Vm}:/tmp/serverkit-install-status" $statusFile 2>&1 | Out-Null
+    & $MpExe transfer "${Vm}:/tmp/serverkit-runtime.json" (Join-Path $VmOut 'runtime.json') 2>&1 | Out-Null
     $rawStatus = if (Test-Path $statusFile) { Get-Content $statusFile -Raw -ErrorAction SilentlyContinue } else { $null }
     if (-not $rawStatus -or "$rawStatus".Trim() -eq '') {
         $fallback = if ($installRC -eq 0) { 'OK' } else { 'FAIL' }
@@ -285,6 +286,8 @@ function Test-VagrantInstall {
         | Out-File (Join-Path $VmOut 'vm-install.log') -Encoding utf8
     & $VgExe ssh -c "sudo cat /tmp/serverkit-install-status" 2>$null `
         | Out-File $statusFile -Encoding ascii
+    & $VgExe ssh -c "sudo cat /tmp/serverkit-runtime.json" 2>$null `
+        | Out-File (Join-Path $VmOut 'runtime.json') -Encoding utf8
     # Get-Content -Raw returns $null for empty/missing files; guard before
     # calling .Trim() so a failed status capture doesn't crash the run.
     $rawStatus = if (Test-Path $statusFile) { Get-Content $statusFile -Raw -ErrorAction SilentlyContinue } else { $null }

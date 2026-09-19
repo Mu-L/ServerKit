@@ -10,8 +10,12 @@ on:
       - 'scripts/measure-repository.py'
       - 'scripts/update-readme-measurements.py'
       - 'scripts/profile-api.py'
+      - 'scripts/measure-runtime.py'
+      - 'scripts/test/measure-installed-runtime.py'
+      - 'scripts/test/report.py'
       - 'scripts/test/test_repository_measurements.py'
       - 'scripts/test/test_profile_api.py'
+      - 'scripts/test/test_measure_runtime.py'
       - '.github/workflows/measurements-ci.yml'
   pull_request:
     branches: [main]
@@ -22,8 +26,12 @@ on:
       - 'scripts/measure-repository.py'
       - 'scripts/update-readme-measurements.py'
       - 'scripts/profile-api.py'
+      - 'scripts/measure-runtime.py'
+      - 'scripts/test/measure-installed-runtime.py'
+      - 'scripts/test/report.py'
       - 'scripts/test/test_repository_measurements.py'
       - 'scripts/test/test_profile_api.py'
+      - 'scripts/test/test_measure_runtime.py'
       - '.github/workflows/measurements-ci.yml'
 
 jobs:
@@ -38,5 +46,6 @@ jobs:
         run: |
           python -m unittest discover -s scripts/test -p test_repository_measurements.py
           python -m unittest discover -s scripts/test -p test_profile_api.py
+          python -m unittest discover -s scripts/test -p test_measure_runtime.py
       - name: Check translated README tables against reviewed snapshots
         run: python scripts/update-readme-measurements.py
