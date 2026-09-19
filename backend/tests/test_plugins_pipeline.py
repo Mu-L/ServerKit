@@ -548,3 +548,65 @@ def test_repair_leaves_intact_installs_alone(app, plugin_dirs, monkeypatch):
     plugin_service.repair_missing_plugins()
     db.session.refresh(plugin)
     assert plugin.status == InstalledPlugin.STATUS_ACTIVE
+
+
+# --------------------------------------------------------------------------- #
+# Hot-load on a live app (#144): install must work after the first request
+# --------------------------------------------------------------------------- #
+
+def test_blueprint_registers_after_first_request(app):
+    """Flask refuses register_blueprint once the app has served a request, and
+    on a live panel that is always the case by the time anyone installs an
+    extension — login and dashboard requests come first. The failed hot-load
+    used to leave the plugin's routes missing until a restart, and an
+    unmatched POST (e.g. the malware scanner's custom-path scan) fell through
+    to the static-file route and surfaced as a 405."""
+    from flask import Blueprint, jsonify
+
+    c = app.test_client()
+    c.get('/')  # flip _got_first_request — the state every live panel is in
+
+    bp = Blueprint('live_reg_bp', __name__)
+
+    @bp.route('/ping', methods=['POST'])
+    def ping():
+        return jsonify({'ok': True})
+
+    plugin_service._register_blueprint_live(
+        app, bp, url_prefix='/api/v1/live-reg')
+
+    resp = c.post('/api/v1/live-reg/ping')
+    assert resp.status_code == 200
+    assert resp.get_json() == {'ok': True}
+
+
+def test_register_blueprint_live_preserves_first_request_flag(app):
+    """The setup guard is waived only for the registration call itself."""
+    from flask import Blueprint
+
+    c = app.test_client()
+    c.get('/')
+    assert app._got_first_request is True
+
+    bp = Blueprint('live_reg_flag_bp', __name__)
+    plugin_service._register_blueprint_live(
+        app, bp, url_prefix='/api/v1/live-flag')
+
+    assert app._got_first_request is True
+
+
+def test_register_blueprint_live_on_fresh_app(app):
+    """The no-op branch: an app that has not served a request yet registers
+    through the plain path."""
+    from flask import Blueprint, jsonify
+
+    bp = Blueprint('live_reg_fresh_bp', __name__)
+
+    @bp.route('/ping')
+    def ping():
+        return jsonify({'ok': True})
+
+    plugin_service._register_blueprint_live(
+        app, bp, url_prefix='/api/v1/live-fresh')
+
+    assert app.test_client().get('/api/v1/live-fresh/ping').status_code == 200

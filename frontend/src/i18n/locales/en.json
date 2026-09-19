@@ -4997,6 +4997,25 @@
             "admin": "Admin",
             "aiAssistant": "AI Assistant",
             "appearance": "Appearance",
+            "cloud": {
+                "cannotTurnOff": "Nothing here turns the profile off — that is done in ServerKit Cloud, or it lifts on its own if Cloud stays unreachable past the expiry.",
+                "connection": "Connection",
+                "lapsed": "The profile below lapsed — Cloud has been unreachable past its expiry, so the full panel is back. It returns if Cloud reconnects and re-sends it.",
+                "managedProfile": "Managed profile",
+                "noProfile": "No managed profile. ServerKit Cloud has not taken over any part of this panel — everything you see is yours to run.",
+                "notPaired": "This panel is not connected to ServerKit Cloud.",
+                "openInCloud": "Open this server in ServerKit Cloud",
+                "organisation": "Organisation",
+                "override": "Lifted for a support session until {{until}}. The profile returns on its own afterwards.",
+                "overrideReason": "Lifted for a support session until {{until}} — {{reason}}. The profile returns on its own afterwards.",
+                "policyExpires": "Policy expires",
+                "policyId": "Policy",
+                "profileIntro": "{{heldBy}} took over the responsibilities below on {{since}}. Pages they cover show a managed card instead of their tools; every route and API keeps working.",
+                "serverName": "Server name in Cloud",
+                "state": "State",
+                "subtitle": "What ServerKit Cloud does for this server, and what it has taken over",
+                "title": "ServerKit Cloud"
+            },
             "connections": "Connections",
             "iconReference": "Icon Reference",
             "localDev": "Local Dev",
@@ -5006,6 +5025,7 @@
             "preferences": "Preferences",
             "profile": "Profile",
             "recycleBin": "Recycle bin",
+            "serverkitCloud": "ServerKit Cloud",
             "settingsSection": "Settings section",
             "sidebar": "Sidebar",
             "siteSettings": "Site Settings",
@@ -5054,6 +5074,10 @@
             "chooseHowToReceiveNotificationsEmail": "Choose how to receive notifications (email, Discord, Slack, Telegram)",
             "chooseTheLanguageModelToUse": "Choose the language model to use",
             "chooseWhichAlertTypesToReceive": "Choose which alert types to receive (critical, warning, info, success)",
+            "cloudConnection": "ServerKit Cloud connection",
+            "cloudConnectionDesc": "Read this panel's ServerKit Cloud connection state",
+            "cloudManagedProfile": "Managed profile",
+            "cloudManagedProfileDesc": "See which responsibilities ServerKit Cloud holds under the Managed service",
             "cloudProviders": "Cloud providers",
             "colorTheme": "Color theme",
             "configureAGenericOpenidConnectProvider": "Configure a generic OpenID Connect provider",
@@ -7083,6 +7107,34 @@
             "scale": "Scale"
         },
         "waitingFirstFrame": "Waiting for first frame…"
+    },
+    "managed": {
+        "capability": {
+            "backups_schedule": "Backup scheduling",
+            "config_templates": "Server templates",
+            "firewall": "Firewall",
+            "fleet": "Server fleet",
+            "monitoring_alerts": "Alert rules",
+            "provisioning": "Server provisioning",
+            "updates": "Updates"
+        },
+        "capabilityNote": {
+            "backups_schedule": "Backup schedules and destinations; local restore stays with you",
+            "config_templates": "Config Templates",
+            "firewall": "Firewall management",
+            "fleet": "Servers, Agent Fleet and Fleet Proxy",
+            "monitoring_alerts": "Alert rules and channels; the live charts stay",
+            "provisioning": "Cloud Servers",
+            "updates": "Panel and agent update screens and self-update"
+        },
+        "card": {
+            "body": "ServerKit Cloud takes care of this as part of your Managed service. The page is hidden, not removed — its API still answers and everything returns the moment the Managed scope ends.",
+            "bodySince": "ServerKit Cloud took this over on {{date}} as part of your Managed service. The page is hidden, not removed — its API still answers and everything returns the moment the Managed scope ends.",
+            "openCloud": "Open in ServerKit Cloud",
+            "title": "{{label}} is managed by {{heldBy}}",
+            "updatesNote": "The panel still updates itself; only the update screens are hidden."
+        },
+        "lapsed": "The managed profile from ServerKit Cloud lapsed — the full panel is back. It returns if Cloud reconnects and re-sends it."
     },
     "nav": {
         "accountMenu": "Account and preferences",

@@ -217,4 +217,4 @@ def result_frame(cmd_id: str, state: str, result: dict = None, stream: str = Non
 
 # Importing the handler modules is what registers them. Kept at the bottom so
 # a handler module may import this one for @handler.
-from app.services import connect_policy, connect_storage  # noqa: E402,F401
+from app.services import connect_managed_profile, connect_policy, connect_storage  # noqa: E402,F401

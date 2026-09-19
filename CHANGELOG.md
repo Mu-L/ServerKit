@@ -18,7 +18,38 @@ Earlier development history remains in
 The [agent](https://github.com/jhd3197/serverkit-agent/releases) has its own
 release history; historical `agent-v*` tags are not panel releases.
 
-## [1.11.1] - Unreleased
+## [Unreleased]
+
+### Changed
+
+- Let the template catalog certification test point at an external registry
+  tree (`SERVERKIT_TEMPLATES_DIR`, `SERVERKIT_TEMPLATES_INDEX`), so the
+  official template registry's CI holds every template to the installer's
+  rules before a merge publishes it.
+
+### Fixed
+
+- Hold the log viewer to its allowed directories. A folder whose name only
+  begins with an allowed root, such as `/opt-private` next to `/opt`, was
+  treated as though it sat inside that root and could be read, searched and
+  cleared through the Log Files tab.
+- Keep panel-internal files out of the log viewer entirely. On the standard
+  install layout the panel's own directory sits under the allowed root
+  `/opt`, so the Log Files tab could read — or clear — the backend `.env`
+  and database. The log viewer now shares the file manager's protected-roots
+  exclusion.
+- Make extension hot-load work on a live panel. Flask refuses to register a
+  blueprint once the app has served its first request, so an extension
+  installed on a running panel had no API routes until a restart — its pages
+  loaded, but every call failed, with POSTs surfacing as a 405 (the Malware
+  Scanner custom-path scan, #144). Blueprint registration now waives Flask's
+  setup guard for the duration of the call, which is safe in the panel's
+  single-worker threaded deployment.
+
+## [1.11.4] - 2026-09-12
+
+Covers the 1.11.1 through 1.11.3 version bumps, which shipped only as dev
+prerelease builds.
 
 ### Added
 
@@ -29,6 +60,15 @@ release history; historical `agent-v*` tags are not panel releases.
 
 ### Fixed
 
+- Stop the Connect client when ServerKit Cloud revokes its access: honor the
+  relay's close-reason frame, which production edges deliver where a custom
+  close code is stripped, and treat a revoked long-poll the same way instead
+  of reconnecting forever.
+- Refetch the signing keys once when a Cloud command arrives signed with a key
+  the cached JWKS predates, and only then refuse an unknown key.
+- Warn on the first failure of a metrics build streak and after five empty
+  collections, instead of logging silently at debug level.
+- Fix first-run sidebar preferences and extension loading.
 - Require explicit consent before sending diagnostics or collecting logs, and
   redact structured secrets and short authorization credentials locally.
 - Recover unacknowledged log batches within their byte and expiry limits;
@@ -40,7 +80,7 @@ release history; historical `agent-v*` tags are not panel releases.
 - Fix backend test-factory compliance and the settings browser-test timing race.
 - Update the demo link in all four README translations.
 
-[Source changes since 1.11.0](https://github.com/jhd3197/ServerKit/compare/v1.11.0...v1.11.1).
+[Source changes since 1.11.0](https://github.com/jhd3197/ServerKit/compare/v1.11.0...v1.11.4).
 
 ## [1.11.0] - 2026-09-08
 
@@ -972,7 +1012,8 @@ require their matching extensions. Review the installed extensions after updatin
 - Established the earliest published panel release covered by this backfill, with the Flask/React control panel, application and database management, Docker operations, backups and server monitoring.
 - Moved the agent into the separate serverkit-agent repository and introduced a dedicated panel release workflow.
 
-[1.11.1]: https://github.com/jhd3197/ServerKit/releases/tag/v1.11.1
+[Unreleased]: https://github.com/jhd3197/ServerKit/compare/v1.11.4...dev
+[1.11.4]: https://github.com/jhd3197/ServerKit/releases/tag/v1.11.4
 [1.11.0]: https://github.com/jhd3197/ServerKit/releases/tag/v1.11.0
 [1.10.0]: https://github.com/jhd3197/ServerKit/releases/tag/v1.10.0
 [1.9.29]: https://github.com/jhd3197/ServerKit/releases/tag/v1.9.29

@@ -19,6 +19,9 @@ import ErrorBoundary from '../components/ErrorBoundary';
 import { useShortcut } from '../hooks/useShortcut';
 import { useTranslation } from 'react-i18next';
 import { OperationsProvider } from '../contexts/OperationsContext';
+import { ManagedProfileProvider } from '../contexts/ManagedProfileContext';
+import { useManagedProfile } from '../contexts/useManagedProfile';
+import ManagedCard from '../components/ManagedCard';
 import { WalkthroughProvider } from '../contexts/WalkthroughContext';
 import { ShellDockProvider } from '../contexts/ShellDockContext';
 import WalkthroughHub from '../components/WalkthroughHub';
@@ -117,6 +120,7 @@ const DashboardLayout = () => {
             <ConfirmProvider>
             <WalkthroughProvider>
             <ShellDockProvider>
+            <ManagedProfileProvider>
             <div className="dashboard-layout">
                 <StagingBanner />
                 <MobileTopBar navOpen={navOpen} onToggle={() => setNavOpen(prev => !prev)} />
@@ -134,9 +138,7 @@ const DashboardLayout = () => {
                 )}
                 <main className={`main-content${isFullPageRoute ? ' main-content--full-page' : ''}`}>
                     {!isFullPageRoute && <SystemNotices />}
-                    <ErrorBoundary resetKey={location.pathname}>
-                        <Outlet />
-                    </ErrorBoundary>
+                    <ManagedOutlet pathname={location.pathname} isFullPageRoute={isFullPageRoute} />
                 </main>
                 <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
                 <OperationsDock hideLauncher statusbarMode />
@@ -145,12 +147,38 @@ const DashboardLayout = () => {
                 <GlobalStatusBar onOpenPalette={() => setPaletteOpen(true)} />
                 <PluginLoader api={api} />
             </div>
+            </ManagedProfileProvider>
             </ShellDockProvider>
             </WalkthroughProvider>
             </ConfirmProvider>
             </AIProvider>
         </LogsDrawerProvider>
         </OperationsProvider>
+    );
+};
+
+// The managed-profile gate (plan 25). A held capability's route still renders —
+// it renders the managed card instead of the page content, so deep links,
+// handoffs and exports keep landing somewhere truthful. When the policy has
+// lapsed (Cloud unreachable past the expiry window) the full panel is back and
+// one banner says why.
+const ManagedOutlet = ({ pathname, isFullPageRoute }) => {
+    const { t } = useTranslation();
+    const { active, profile, lapsed, cardForPath } = useManagedProfile();
+    const managedCapability = active && !isFullPageRoute ? cardForPath(pathname) : null;
+    return (
+        <>
+            {lapsed && (
+                <div className="managed-lapsed-banner" data-testid="managed-profile-lapsed">
+                    {t('managed.lapsed', 'The managed profile from ServerKit Cloud lapsed — the full panel is back. It returns if Cloud reconnects and re-sends it.')}
+                </div>
+            )}
+            <ErrorBoundary resetKey={pathname}>
+                {managedCapability
+                    ? <ManagedCard capability={managedCapability} profile={profile} />
+                    : <Outlet />}
+            </ErrorBoundary>
+        </>
     );
 };
 

@@ -22,6 +22,8 @@ import ServerPicker from '@/components/templates/ServerPicker';
 import { useTopbarChrome } from '@/hooks/useTopbarActions';
 import { applyTableSorts, useTableSort } from '@/hooks/useTableSort';
 import EmptyState from '../components/EmptyState';
+import { useManagedProfile } from '../contexts/useManagedProfile';
+import ManagedCard from '../components/ManagedCard';
 import { useTranslation } from 'react-i18next';
 
 // Featured templates (curated list)
@@ -229,6 +231,11 @@ const Templates = () => {
     const [showInstallModal, setShowInstallModal] = useState(false);
     const [filtersOpen, setFiltersOpen] = useState(false);
 
+    // Deploying targets a fleet ServerKit Cloud operates under the managed
+    // profile (plan 25): the catalog stays browsable, the Deploy control goes.
+    const { isControlHeld, profile: managedProfile } = useManagedProfile();
+    const deployManaged = isControlHeld('templates-deploy');
+
     // Initialize from URL params
     const selectedCategory = searchParams.get('category') || '';
     const selectedKind = searchParams.get('kind') || '';
@@ -391,6 +398,7 @@ const Templates = () => {
     // detection wizard had nothing left to ask; it deploys from the same
     // drawer as everything else.
     async function handleDeploy(template) {
+        if (deployManaged) return;
         if (template.id === 'wordpress') {
             navigate('/wordpress');
             return;
@@ -543,6 +551,9 @@ const Templates = () => {
 
             {/* Templates Grid */}
             <div className="templates-grid">
+                {deployManaged && (
+                    <ManagedCard capability="fleet" profile={managedProfile} compact />
+                )}
                 {sortedTemplates.length === 0 ? (
                     <EmptyState
                         icon={LayoutTemplate}
@@ -558,7 +569,7 @@ const Templates = () => {
                     sortedTemplates.map(template => {
                         const isRepo = (template.kind || 'compose') === 'repo';
                         return (
-                            <div key={template.id} className="tpl-card" onClick={() => handleDeploy(template)}>
+                            <div key={template.id} className="tpl-card" onClick={() => !deployManaged && handleDeploy(template)}>
                                 {isFeatured(template.id) && (
                                     <span className="tpl-ft" title={t('app.templates.featured', 'Featured')}>
                                         <Star size={14} />
@@ -593,6 +604,7 @@ const Templates = () => {
                                             <BookOpen size={12} />
                                         </span>
                                     )}
+                                    {!deployManaged && (
                                     <Button
                                         size="sm"
                                         className="tpl-deploy"
@@ -603,6 +615,7 @@ const Templates = () => {
                                     >
                                         <Rocket size={12} /> {t('app.templates.deploy', 'Deploy')}
                                     </Button>
+                                    )}
                                 </div>
                             </div>
                         );

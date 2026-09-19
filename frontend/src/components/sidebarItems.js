@@ -363,3 +363,21 @@ export function applyWorkspaceNavPermissions(items, workspace, user) {
     const allowed = new Set(allowedIds);
     return items.filter(item => item.alwaysVisible || allowed.has(item.id));
 }
+
+// ---------------------------------------------------------------------------
+// Managed profile (ServerKit Cloud, plan 25)
+//
+// The one table mapping a held managed capability to the sidebar ids it
+// removes, the route prefixes whose pages render the managed card, and the
+// in-page controls that collapse — re-exported here because this module is
+// where the mapping is read alongside the items it hides. The table itself
+// lives in ./managedCapabilities.js, which stays dependency-free so the drift
+// guard (routes/__tests__/managedProfile.test.mjs) can import it under plain
+// node. Hidden is not removed: every route stays registered and every API
+// keeps answering.
+export {
+    MANAGED_CAPABILITY_MAP,
+    managedSidebarIds,
+    managedCapabilityForPath,
+    managedControlHeld,
+} from './managedCapabilities';

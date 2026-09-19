@@ -96,6 +96,77 @@ construction; background jobs and streamed body iteration are not included.
 
 ## Measure memory, images and browser loading separately
 
+### Passive Linux runtime sampler
+
+`scripts/measure-runtime.py` reads Linux **cgroup v2** counters for explicitly
+selected systemd units or Docker containers. It uses Python's standard library,
+does not restart services or generate HTTP traffic, and saves timestamped raw
+samples plus median/p95/sampled-maximum summaries. Run it on the host, outside
+the services being measured. It rejects overlapping scopes and reports missing
+counters or replaced cgroups instead of inventing zero usage.
+
+For an installed host panel, first verify the unit actually runs the backend
+(not a oneshot wrapper that starts Docker). Record the revision actually running:
+
+```bash
+python3 scripts/measure-runtime.py --unit serverkit.service --unit nginx.service \
+  --scenario idle-dashboard-closed --revision "$RUNNING_SERVERKIT_REVISION" \
+  --notes 'Record DB engine, enabled extensions, app count, warmup and other host activity here' \
+  --duration 600 --interval 5 --output runtime-idle.json
+```
+
+For the panel container, use `--container serverkit` instead of `--unit`.
+Repeat `--unit` / `--container` to include separate supporting services (for
+example Docker, containerd, or an external panel database); results remain per
+target. Newly created application/build containers are **not automatically
+included**. The JSON output is created exclusively so an earlier baseline cannot
+be accidentally overwritten. Ctrl+C saves a partial report with exit code 130;
+failed samples return exit code 1. Optional unavailable counters stay null.
+
+- Memory is `memory.current`, including descendants, charged file cache and
+  kernel memory. It is **not process RSS or Docker CLI's cache-adjusted number**.
+  Raw `memory.stat` is retained; its fields overlap, so do not sum them all.
+- CPU is the change in `cpu.stat` usage divided by actual elapsed time; 100%
+  means one logical CPU, and values can exceed 100% on multicore systems.
+- Swap, task counts, cumulative per-device I/O and memory-event counters are
+  retained where available. Device counters can overlap with stacked storage;
+  inspect deltas per device rather than summing them blindly. Memory events are
+  lifetime counters; compare the first and last samples for events in the run.
+- Peaks are **sampled**, not exact instantaneous high-water marks. Host available
+  memory provides context but includes unrelated workloads. Record machine
+  specs, cgroup limits and background activity alongside any published result.
+
+Definitions follow the [Linux cgroup-v2 documentation](https://docs.kernel.org/admin-guide/cgroup-v2.html).
+Start with a 10-minute quiet baseline after startup settles, then repeat with the
+dashboard open and a fixed set of apps. On a disposable test server, separately
+observe a deployment and backup while also measuring application response times.
+Use the same hardware, limits, versions, data and workload before/after a fix.
+This sampler measures resource usage, not application latency or throughput.
+
+### Automatic observations in full distro installs
+
+The VM harness and Test Sandbox **full** mode invoke
+`scripts/test/measure-installed-runtime.py` after the health check, before other
+API tests. It settles for 60 seconds, then observes for 120 seconds at 5-second
+intervals. The panel and active nginx/Docker/containerd units are recorded
+separately. Each run saves a runtime artifact and an explicit measured,
+unavailable, failed or interrupted status; install success does not imply that
+measurement succeeded. No arbitrary RAM/CPU pass threshold is enforced yet.
+
+VM results include `runtime.json` and a table in the HTML report. Test Sandbox
+keeps `<distro>.runtime.json` next to its log, includes compact measurement data
+in the existing results API, and prints the summary into the log. The VM overlay
+archive SHA-256 identifies uncommitted source; full container installs identify
+the installed checkout/release (which can differ from the local installer).
+
+Quick/provision distro probes do not run ServerKit, so they cannot produce a
+panel runtime baseline. Full systemd containers share the host kernel; parallel
+installs and startup jobs can affect these short observations. Use an isolated
+VM/VPS and longer repeated runs for performance claims. Cgroup-v1 environments
+are explicitly unavailable rather than silently measured with different rules.
+
+### Other measurement boundaries
+
 - **Memory:** record the exact process/container, workload, uptime and sampling
   interval. Process RSS and Docker memory accounting are different measurements.
   Include workers and enabled services; do not describe one idle sample as a

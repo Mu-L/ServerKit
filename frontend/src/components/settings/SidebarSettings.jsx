@@ -11,6 +11,7 @@ import {
 } from '../sidebarItems';
 import { Button } from '@/components/ui/button';
 import useSettingFocus from '../../hooks/useSettingFocus';
+import { useManagedProfile } from '../../contexts/useManagedProfile';
 import { useTranslation } from 'react-i18next';
 
 const PRESET_ICONS = {
@@ -31,10 +32,13 @@ const SidebarSettings = () => {
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState(null);
     const register = useSettingFocus();
+    // Items ServerKit Cloud holds under the managed profile (plan 25) are not
+    // offered as things to re-add — they left every preset already.
+    const { hiddenSidebarIds: managedHidden } = useManagedProfile();
 
     const toggleableItems = useMemo(
-        () => SIDEBAR_ITEMS.filter(item => !item.alwaysVisible),
-        []
+        () => SIDEBAR_ITEMS.filter(item => !item.alwaysVisible && !managedHidden.has(item.id)),
+        [managedHidden]
     );
 
     const activeHidden = preset === 'custom'

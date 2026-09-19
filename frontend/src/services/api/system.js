@@ -121,6 +121,16 @@ export async function checkUpdate() {
     return this.request('/system/check-update');
 }
 
+// ServerKit Cloud connect state and the managed presentation policy (plan 25).
+// Both are admin-only on the backend; callers treat a refusal as "no profile".
+export async function getConnectStatus() {
+    return this.request('/connect/status');
+}
+
+export async function getManagedProfile() {
+    return this.request('/connect/managed-profile');
+}
+
 export async function getPanelUpdateStatus() {
     return this.request('/system/update');
 }

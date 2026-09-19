@@ -23,7 +23,7 @@ def esc(s):
 
 def load_json(path):
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8-sig"))
     except Exception:
         return None
 
@@ -71,7 +71,33 @@ def vm_summary(vm_dir: Path):
         "skip": skip_count,
         "install_log": read_text(vm_dir / "install.log"),
         "journal": read_text(vm_dir / "journalctl.log", limit=50_000),
+        "runtime": load_json(vm_dir / "runtime.json"),
     }
+
+
+def runtime_table(measurement):
+    if not measurement:
+        return '<p>Runtime baseline: unavailable (no artifact).</p>'
+    status = measurement.get('status', 'unknown')
+    if status != 'measured':
+        return f"<p>Runtime baseline: {esc(status)}. {esc(measurement.get('reason', ''))}</p>"
+
+    def number(value, divisor=1):
+        return 'unavailable' if value is None else f'{value / divisor:,.2f}'
+
+    rows = []
+    for item in measurement.get('summary', []):
+        memory = item.get('memory_bytes', {})
+        cpu = item.get('cpu_percent_one_core', {})
+        rows.append(f"<tr><td>{esc(item['name'])}</td>"
+                    f"<td>{number(memory.get('p50'), 1024 ** 2)}</td>"
+                    f"<td>{number(memory.get('sampled_max'), 1024 ** 2)}</td>"
+                    f"<td>{number(cpu.get('p50'))}</td><td>{number(cpu.get('p95'))}</td></tr>")
+    return ('<p>Post-install observation: cgroup memory includes cache; CPU 100% = one logical CPU. '
+            'Sampled peaks can miss short spikes. This is not a capacity benchmark.</p>'
+            '<table><tr><th>Service</th><th>Median MiB</th><th>Sampled peak MiB</th>'
+            '<th>Median CPU %</th><th>p95 CPU %</th></tr>' + ''.join(rows) + '</table>'
+            f"<p>Source: <code>{esc(measurement.get('running_revision'))}</code></p>")
 
 
 HTML_TEMPLATE = """<!doctype html>
@@ -119,6 +145,7 @@ VM_TEMPLATE = """<div class="vm {cls}">
    <span>Skipped: <b>{s}</b></span>
  </div>
  {tests_table}
+ {runtime_table}
  <details><summary>Install log</summary><pre>{install_log}</pre></details>
  <details><summary>journalctl -u serverkit</summary><pre>{journal}</pre></details>
 </div>"""
@@ -203,6 +230,7 @@ def render(run_dir: Path) -> Path:
             install="OK" if s["install_ok"] else ("-" if s["overall"] == "RUNNING" else "FAIL"),
             p=s["pass"], f=s["fail"], s=s["skip"],
             tests_table=tests_table,
+            runtime_table=runtime_table(s.get('runtime')),
             install_log=esc(s["install_log"]),
             journal=esc(s["journal"]),
         ))

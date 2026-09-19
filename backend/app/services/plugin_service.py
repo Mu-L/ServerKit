@@ -1324,6 +1324,33 @@ def _register_extra_blueprints(register, plugin, manifest):
                     + (f' (as {name})' if name else ''))
 
 
+def _register_blueprint_live(app, bp, **options):
+    """Register a blueprint on an app that may already be serving requests.
+
+    Flask refuses setup calls once the app has handled its first request
+    (``AssertionError: The setup method 'register_blueprint' can no longer be
+    called...``), so on any live panel — where login and dashboard requests
+    long precede the first extension install — hot-load always failed and the
+    plugin's routes stayed missing until a restart: unmatched POSTs then fell
+    through to the static route and surfaced as a 405 (#144).
+
+    Late registration is safe in this deployment shape: the panel runs a
+    single gunicorn worker with threads (the process installing the plugin is
+    the process serving its routes), and werkzeug rebuilds its URL matcher
+    lazily on the next bind while in-flight requests keep the matcher they
+    already bound. Temporarily clearing the flag only waives Flask's setup
+    guard; it does not touch request state.
+    """
+    if not app._got_first_request:
+        app.register_blueprint(bp, **options)
+        return
+    app._got_first_request = False
+    try:
+        app.register_blueprint(bp, **options)
+    finally:
+        app._got_first_request = True
+
+
 def _register_plugin_blueprint(plugin):
     """Dynamically register a plugin's Flask blueprint into the running app."""
     from flask import current_app
@@ -1344,10 +1371,12 @@ def _register_plugin_blueprint(plugin):
         mod = importlib.import_module(full_module)
         bp = getattr(mod, bp_name)
         _attach_status_guard(bp, plugin.slug)
-        current_app.register_blueprint(bp, url_prefix=plugin.url_prefix)
+        _register_blueprint_live(
+            current_app, bp, url_prefix=plugin.url_prefix)
         logger.info(f'Registered blueprint {bp_name} at {plugin.url_prefix}')
         _register_extra_blueprints(
-            current_app.register_blueprint, plugin, plugin.manifest or {})
+            lambda bp, **opts: _register_blueprint_live(current_app, bp, **opts),
+            plugin, plugin.manifest or {})
     except Exception as e:
         raise ValueError(f'Failed to register blueprint: {e}')
 

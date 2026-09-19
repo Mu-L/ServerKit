@@ -442,6 +442,8 @@ option for a small donation. ERC-20 gas can cost more than the donation itself.
 
 **[DeviceKit](https://github.com/jhd3197/DeviceKit)** — A unified Android device fleet & test-automation platform. Control a fleet of devices from one dashboard — run automations, stream screens in real time, catch visual regressions, and debug failures with AI-powered analysis.
 
+**[Vela](https://github.com/jhd3197/vela)** — Your personal app server. Install, run, and manage local apps from one browser dashboard while your apps, settings, and data stay on your own machine — with self-updating releases on Windows, macOS, and Linux, plus an iOS PWA. Already running ServerKit? Import the repository's `serverkit.yaml` as a new service and it deploys in one shot.
+
 ---
 
 ## 💬 Community

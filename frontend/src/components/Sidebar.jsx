@@ -12,6 +12,7 @@ import { useContributions } from '../plugins/contributions';
 import { sanitizeSvgInner } from '../utils/sanitizeSvg';
 import useModules from '../hooks/useModules';
 import useDevMode from '../hooks/useDevMode';
+import { useManagedProfile } from '../contexts/useManagedProfile';
 import QuickCreate from './QuickCreate';
 import { useWorkspace } from '../contexts/useWorkspace.js';
 import { Button as SharedButton } from '@/components/ui/button';
@@ -144,6 +145,9 @@ const Sidebar = ({ mobileOpen = false, isMobile = false, onMobileClose = () => {
     // Developer-only items (Test Sandbox) — same source the route guard reads.
     const devMode = useDevMode();
 
+    // Sidebar items ServerKit Cloud holds under the managed profile (plan 25).
+    const { hiddenSidebarIds: managedHidden } = useManagedProfile();
+
     const conditions = { wpInstalled, gpuAvailable, wordpressEnabled, devMode };
     const currentPreset = user?.sidebar_config?.preset || 'recommended';
     const [manualExpanded, setManualExpanded] = useState({});
@@ -209,8 +213,15 @@ const Sidebar = ({ mobileOpen = false, isMobile = false, onMobileClose = () => {
         // Apply workspace-level nav permissions if an active workspace is set
         // and it defines a nav map. This lets a workspace restrict which sidebar
         // items its members see based on their effective workspace role.
-        return applyWorkspaceNavPermissions(items, activeWorkspace, user);
-    }, [pluginNav, pluginTabs, wpInstalled, gpuAvailable, wordpressEnabled, devMode, user, hasPermission, activeWorkspace]);
+        items = applyWorkspaceNavPermissions(items, activeWorkspace, user);
+        // The managed profile (plan 25): capabilities ServerKit Cloud holds
+        // remove their sidebar items from every preset, the same way a
+        // workspace nav map removes them.
+        if (managedHidden.size > 0) {
+            items = items.filter((item) => !managedHidden.has(item.id));
+        }
+        return items;
+    }, [pluginNav, pluginTabs, wpInstalled, gpuAvailable, wordpressEnabled, devMode, user, hasPermission, activeWorkspace, managedHidden]);
 
     // Group visible items by category
     const groupedItems = useMemo(() => {

@@ -1,0 +1,85 @@
+// Managed card + lapsed-profile banner (plan 25). What a held capability's
+// page shows instead of its content, and the one-line notice when a policy
+// lapsed and the full panel returned.
+
+.managed-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: $spacing-md;
+    padding: $spacing-xl $spacing-lg;
+    max-width: 560px;
+    margin: $spacing-xl auto;
+    background: $bg-card;
+    border: 1px solid $border-color;
+    border-radius: $radius-xl;
+
+    &__icon {
+        color: $primary-color;
+        display: flex;
+    }
+
+    &__title {
+        margin: 0;
+        font-size: $font-size-xl;
+        font-weight: 600;
+    }
+
+    &__body {
+        margin: 0;
+        color: $text-secondary;
+        line-height: 1.55;
+    }
+
+    &__action {
+        margin-top: $spacing-sm;
+    }
+
+    &--compact {
+        margin: $spacing-md 0;
+        padding: $spacing-lg;
+        gap: $spacing-sm;
+
+        .managed-card__title {
+            font-size: $font-size-lg;
+        }
+    }
+}
+
+.managed-lapsed-banner {
+    display: flex;
+    align-items: center;
+    gap: $spacing-sm;
+    margin: 0 0 $spacing-md;
+    padding: $spacing-sm $spacing-md;
+    background: rgba($warning-color, 0.12);
+    border: 1px solid rgba($warning-color, 0.35);
+    border-radius: $radius-md;
+    color: $text-primary;
+    font-size: $font-size-sm;
+}
+
+.managed-spec-list {
+    display: flex;
+    flex-direction: column;
+    gap: $spacing-xs;
+    margin: $spacing-sm 0;
+}
+
+.managed-spec-row {
+    display: flex;
+    justify-content: space-between;
+    gap: $spacing-md;
+    font-size: $font-size-sm;
+}
+
+.managed-spec-key {
+    color: $text-secondary;
+}
+
+.managed-spec-val {
+    overflow-wrap: anywhere;
+    text-align: right;
+}

@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useAuth } from '../contexts/useAuth.js';
 import { SIDEBAR_ITEMS } from '../components/sidebarItems';
 import { useWorkspace } from '../contexts/useWorkspace.js';
+import { useManagedProfile } from '../contexts/useManagedProfile';
 
 // Sidebar items that can never be hidden (Dashboard, Marketplace) — the palette
 // mirrors the sidebar's `alwaysVisible` so a workspace nav map can't hide them.
@@ -16,6 +17,8 @@ const ALWAYS_VISIBLE = new Set(
  *   - Items tied to a sidebar `navId` respect the active workspace's per-role
  *     nav-permission map (same source as applyWorkspaceNavPermissions), which
  *     only ever NARROWS a member's view.
+ *   - Items whose capability ServerKit Cloud holds under the managed profile
+ *     (plan 25) leave the palette too, same as they leave every sidebar preset.
  *
  * Note: this intentionally does NOT apply personal sidebar-preset hiding — a page
  * you hid from your sidebar for tidiness stays reachable via the palette.
@@ -23,6 +26,7 @@ const ALWAYS_VISIBLE = new Set(
 export default function usePaletteAuthz() {
     const { isAdmin, hasPermission } = useAuth();
     const { activeWorkspace } = useWorkspace();
+    const { hiddenSidebarIds: managedHidden } = useManagedProfile();
 
     return useMemo(() => {
         const navMap = activeWorkspace?.settings?.nav || null;
@@ -30,6 +34,7 @@ export default function usePaletteAuthz() {
 
         const allowNav = (navId) => {
             if (!navId) return true;
+            if (managedHidden.has(navId)) return false;
             if (isAdmin) return true;
             if (ALWAYS_VISIBLE.has(navId)) return true;
             // Per-user feature permissions: files.read=false 403s every files
@@ -47,5 +52,5 @@ export default function usePaletteAuthz() {
         };
 
         return { isAdmin, allowNav, allowItem };
-    }, [isAdmin, hasPermission, activeWorkspace]);
+    }, [isAdmin, hasPermission, activeWorkspace, managedHidden]);
 }

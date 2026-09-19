@@ -437,6 +437,8 @@ que la propia donación.
 **[LocalKit](https://github.com/jhd3197/LocalKit)** — Levanta sitios WordPress locales en un clic. Cada sitio se ejecuta como su propio proyecto aislado de Docker Compose, y puedes enviar código o enviar/traer bases de datos directamente a tu servidor ServerKit mediante la extensión `serverkit-localkit`.
 
 **[DeviceKit](https://github.com/jhd3197/DeviceKit)** — Una plataforma unificada de flota de dispositivos Android y automatización de pruebas. Controla una flota de dispositivos desde un solo panel — ejecuta automatizaciones, transmite pantallas en tiempo real, detecta regresiones visuales y depura fallos con análisis asistido por IA.
+**[Vela](https://github.com/jhd3197/vela)** — Tu servidor personal de aplicaciones. Instala, ejecuta y gestiona aplicaciones locales desde un solo panel en el navegador mientras tus aplicaciones, ajustes y datos permanecen en tu propia máquina — con versiones autoactualizables en Windows, macOS y Linux, además de una PWA para iOS. ¿Ya usas ServerKit? Importa el `serverkit.yaml` del repositorio como un nuevo servicio y se despliega de una vez.
+
 
 ---
 

@@ -148,6 +148,11 @@ log "Step 4/4: waiting for health endpoint"
 for i in $(seq 1 30); do
   if curl -fsS http://127.0.0.1:5000/api/v1/system/health > /dev/null 2>&1; then
     log "Backend healthy after ${i}s"
+    log "Measuring post-install runtime (60s settle + 120s observation)"
+    "$INSTALL_DIR/venv/bin/python" "$SRC/scripts/test/measure-installed-runtime.py" \
+      --source "$INSTALL_DIR" --source-archive /tmp/serverkit-src.tar.gz \
+      --output /tmp/serverkit-runtime.json >> "$LOG" 2>&1 \
+      || log "WARN: runtime baseline unavailable/failed; inspect runtime report"
     echo "OK" > /tmp/serverkit-install-status
     exit 0
   fi
