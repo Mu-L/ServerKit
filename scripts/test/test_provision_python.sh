@@ -10,8 +10,9 @@
 # (nothing in install.sh ever installs a compiler). Seven distro images in CI
 # and none of them caught it, because none of them ran this code for real.
 #
-# So: run identify_system + choose_pkg_manager + provision_python against the
-# real repos, then prove the result is usable. No systemd, no nginx, no network
+# So: run identify_system + choose_pkg_manager + provision_python and the
+# local-build prerequisites against real repos, then prove the result is
+# usable. No systemd, no nginx, no network
 # services — this fits in the plain distro containers the matrix already pulls.
 #
 # Destructive: installs packages. Intended for a container or a throwaway VM.
@@ -112,7 +113,7 @@ halt() {
     return 1
 }
 
-if provision_python >/tmp/pp.log 2>&1; then
+if { provision_python && ensure_python_build_deps; } >/tmp/pp.log 2>&1; then
     prov_rc=0
 else
     prov_rc=$?

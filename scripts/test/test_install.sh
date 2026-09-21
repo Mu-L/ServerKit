@@ -593,6 +593,9 @@ printf '#!/bin/sh\n' > "$t/slot/venv/bin/python"; chmod +x "$t/slot/venv/bin/pyt
 if (
     set -Eeuo pipefail
     INSTALL_FROM_RELEASE=1; FIRST_SLOT="$t/slot"; VENV_DIR="$t/slot/venv"
+    locate_python() { PYTHON_BIN=python3.14; return 0; }
+    ensure_python_build_deps() { exit 1; }
+    provision_python
     build_virtualenv \
         && [ -f "$t/slot/venv/bin/activate" ]
 ) >/dev/null 2>&1; then
@@ -2252,6 +2255,7 @@ if ( set -Eeuo pipefail
         ready=1
     }
     provision_python >/dev/null
+    ensure_python_build_deps >/dev/null
     [ "$ready" = 1 ]
 ); then
     ok "existing Python 3.14 gets matching headers and build tools"
@@ -2274,17 +2278,17 @@ else
 fi
 
 if ( set -Eeuo pipefail
-    OS_FAMILY=debian; ID=ubuntu; installed=0; checked=0
+    OS_FAMILY=debian; ID=ubuntu; installed=0
     locate_python() { [ "$installed" = 1 ] && { PYTHON_BIN=python3.14; return 0; }; return 1; }
     refresh_pkg_index() { :; }
     pkg_add() {
         [ "$*" = 'python3 python3-venv python3-dev' ] || exit 1
         installed=1
     }
-    ensure_python_build_deps() { checked=1; }
+    ensure_python_build_deps() { exit 1; }
     add-apt-repository() { exit 1; }
     provision_python >/dev/null
-    [ "$installed" = 1 ] && [ "$checked" = 1 ]
+    [ "$installed" = 1 ]
 ); then
     ok "Ubuntu uses its supported default Python without a PPA"
 else
@@ -2300,6 +2304,53 @@ if ( set -Eeuo pipefail
     ok "working native build environment needs no package changes"
 else
     bad "working native build environment tried to install packages"
+fi
+
+# A source install, absent release venv, or incompatible release interpreter
+# must all check native prerequisites before creating a venv or invoking pip.
+for build_case in source missing-release broken-release; do
+    if ( set -Eeuo pipefail
+        build_dir="$WORK/native-$build_case"
+        mkdir -p "$build_dir/slot"
+        FIRST_SLOT="$build_dir/slot"; VENV_DIR="$FIRST_SLOT/venv"
+        INSTALL_FROM_RELEASE=1
+        [ "$build_case" != source ] || INSTALL_FROM_RELEASE=0
+        if [ "$build_case" = broken-release ]; then
+            mkdir -p "$VENV_DIR/bin"
+            : > "$VENV_DIR/bin/activate"
+            printf '#!/bin/sh\nexit 1\n' > "$VENV_DIR/bin/python"
+            chmod +x "$VENV_DIR/bin/python"
+        fi
+        ready=0; pip_called=0
+        ensure_python_build_deps() { ready=1; }
+        PYTHON_BIN=test_build_python
+        test_build_python() {
+            [ "$ready" = 1 ] || exit 1
+            mkdir -p "$VENV_DIR/bin"
+            : > "$VENV_DIR/bin/activate"
+        }
+        pip() { [ "$ready" = 1 ] || exit 1; pip_called=1; }
+        build_virtualenv >/dev/null 2>&1
+        [ "$ready" = 1 ] && [ "$pip_called" = 1 ]
+    ); then
+        ok "$build_case checks build prerequisites before pip"
+    else
+        bad "$build_case skipped build prerequisites"
+    fi
+done
+
+if ( set -Eeuo pipefail
+    INSTALL_FROM_RELEASE=0
+    ensure_python_build_deps() { return 1; }
+    PYTHON_BIN=never_build_python
+    never_build_python() { exit 99; }
+    rc=0
+    build_virtualenv >/dev/null 2>&1 || rc=$?
+    [ "$rc" = 1 ]
+); then
+    ok "failed prerequisites stop the local build before venv creation"
+else
+    bad "local build ignored prerequisite failure"
 fi
 
 # -- static guard: the documented insecure site must keep shipping, since both

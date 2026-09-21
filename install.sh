@@ -850,10 +850,10 @@ ensure_python_build_deps() {
 provision_python() {
     phase "Installing Python"
 
-    # Existing interpreters may have venv support but no development headers.
+    # Native build prerequisites are checked by build_virtualenv only when a
+    # local build is needed; a working release venv does not need a compiler.
     if locate_python; then
-        ensure_python_build_deps
-        return $?
+        return
     fi
 
     warn "No supported Python ($PYTHON_MIN–$PYTHON_MAX) found — installing one."
@@ -869,8 +869,7 @@ provision_python() {
             refresh_pkg_index
             pkg_add python3 python3-venv python3-dev
             if locate_python; then
-                ensure_python_build_deps
-                return $?
+                return
             fi
             pkg_add python3.12 python3.12-venv python3.12-dev
             if ! command -v python3.12 &>/dev/null; then
@@ -924,8 +923,7 @@ provision_python() {
     # Did a distro package give us something usable?
     if locate_python; then
         good "Python ready: $PYTHON_BIN"
-        ensure_python_build_deps
-        return $?
+        return
     fi
 
     # Last resort: compile from source.
@@ -965,7 +963,6 @@ provision_python() {
     command -v "$PYTHON_BIN" &>/dev/null || \
         halt "Could not install a supported Python — install Python $PYTHON_MIN-$PYTHON_MAX by hand."
     good "Python installed ($PYTHON_BIN)."
-    ensure_python_build_deps
 }
 
 # ---------------------------------------------------------------------------
@@ -1439,6 +1436,9 @@ build_virtualenv() {
         fi
     fi
 
+    # Existing interpreters may have venv support without the headers needed
+    # by pip. Check after the release fast path, including its local fallback.
+    ensure_python_build_deps || return $?
     step "Creating the virtual environment..."
     $PYTHON_BIN -m venv "$VENV_DIR"
     if [ ! -f "$VENV_DIR/bin/activate" ]; then
