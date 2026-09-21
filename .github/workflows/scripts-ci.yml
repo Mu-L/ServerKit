@@ -110,6 +110,7 @@ jobs:
         image:
           - 'ubuntu:22.04'
           - 'ubuntu:24.04'
+          - 'ubuntu:26.04'
           - 'debian:12'
           # Debian 13 (trixie) ships ONLY python3.13 — no 3.11, no 3.12. Issue
           # #99: the installer's version gate could not be satisfied from its
@@ -232,6 +233,7 @@ jobs:
         image:
           - 'ubuntu:22.04'
           - 'ubuntu:24.04'
+          - 'ubuntu:26.04'
           - 'debian:12'
           - 'debian:13'
           - 'rockylinux:9'

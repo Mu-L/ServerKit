@@ -5,7 +5,7 @@
     {
       "id": "ubuntu",
       "label": "Ubuntu",
-      "versions": "22.04 LTS, 24.04 LTS",
+      "versions": "22.04 LTS, 24.04 LTS, 26.04 LTS",
       "family": "debian",
       "published_status": "tested",
       "architectures": ["amd64", "arm64"],
@@ -24,6 +24,13 @@
           "image": "ubuntu:24.04",
           "fidelity": "exact",
           "full_image": "geerlingguy/docker-ubuntu2404-ansible:latest"
+        },
+        {
+          "key": "ubuntu26",
+          "label": "Ubuntu 26.04",
+          "image": "ubuntu:26.04",
+          "fidelity": "exact",
+          "full_image": null
         }
       ]
     },

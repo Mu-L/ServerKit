@@ -6,7 +6,8 @@ container proves only the named mode:
 
 * quick: shell syntax and source-level installer/update test suites
 * provision: the real distro repositories can supply a supported Python,
-  virtualenv, pip, ssl, sqlite3, and ctypes through install.sh
+  virtualenv, pip, ssl, sqlite3, ctypes, and native dependency builds through
+  install.sh (Ubuntu 26.04 also verifies the full backend requirements)
 
 It does not prove systemd, nginx, Docker-in-Docker, firewall behavior, a full
 ServerKit install, a distro-specific kernel, or hardware. The generated report

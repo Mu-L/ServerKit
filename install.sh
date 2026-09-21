@@ -800,12 +800,60 @@ build_python_from_source() {
     return 0
 }
 
+python_build_ready() {
+    command -v make >/dev/null 2>&1 || return 1
+    # Compile against THIS interpreter's headers, including pyconfig.h. Merely
+    # finding a Python executable or a different version's -dev package is not
+    # enough for pip's native dependencies (issue #148).
+    "$PYTHON_BIN" - <<'PY' >/dev/null 2>&1
+import pathlib
+import shlex
+import subprocess
+import sysconfig
+import tempfile
+
+with tempfile.TemporaryDirectory(prefix='serverkit-python-build-') as work:
+    source = pathlib.Path(work) / 'probe.c'
+    source.write_text('#include <Python.h>\nint main(void) { return 0; }\n')
+    includes = {sysconfig.get_path('include'), sysconfig.get_path('platinclude')}
+    command = shlex.split(sysconfig.get_config_var('CC') or 'cc')
+    command += ['-I' + path for path in includes if path]
+    command += ['-c', str(source), '-o', str(pathlib.Path(work) / 'probe.o')]
+    subprocess.run(command, check=True)
+PY
+}
+
+ensure_python_build_deps() {
+    python_build_ready && return 0
+    local v
+    v=$("$PYTHON_BIN" -c 'import sys;print(".".join(map(str,sys.version_info[:2])))')
+    step "Installing build tools and headers for Python $v..."
+    refresh_pkg_index
+    case "$OS_FAMILY" in
+        debian) pkg_add build-essential "python${v}-dev" ;;
+        fedora|rhel) pkg_add gcc make "python${v}-devel" ;;
+        suse) pkg_add gcc make "python${v//./}-devel" ;;
+        arch) pkg_add base-devel python ;;
+        alpine) pkg_add build-base python3-dev ;;
+        gentoo) pkg_add sys-devel/gcc sys-devel/make "dev-lang/python:${v}" ;;
+    esac
+    # pkg_add deliberately warns and continues. Probe again so failure is
+    # reported here, rather than much later as an opaque pip build failure.
+    if ! python_build_ready; then
+        halt "Native Python dependencies cannot be built with $PYTHON_BIN (Python $v).
+       Install a C compiler, make, and the matching Python development headers, then re-run.
+       On Debian/Ubuntu: apt-get install build-essential python${v}-dev"
+        return 1
+    fi
+}
+
 provision_python() {
     phase "Installing Python"
 
-    # Already have a supported interpreter? Nothing to do.
+    # Existing interpreters may have venv support but no development headers.
     if locate_python; then
-        return
+        ensure_python_build_deps
+        return $?
     fi
 
     warn "No supported Python ($PYTHON_MIN–$PYTHON_MAX) found — installing one."
@@ -818,6 +866,12 @@ provision_python() {
     # state probe (command -v) to decide whether the next fallback is needed.
     if [ "$OS_FAMILY" = "debian" ]; then
         if [ "${ID:-}" = "ubuntu" ]; then
+            refresh_pkg_index
+            pkg_add python3 python3-venv python3-dev
+            if locate_python; then
+                ensure_python_build_deps
+                return $?
+            fi
             pkg_add python3.12 python3.12-venv python3.12-dev
             if ! command -v python3.12 &>/dev/null; then
                 step "Adding deadsnakes PPA for Python 3.12..."
@@ -870,7 +924,8 @@ provision_python() {
     # Did a distro package give us something usable?
     if locate_python; then
         good "Python ready: $PYTHON_BIN"
-        return
+        ensure_python_build_deps
+        return $?
     fi
 
     # Last resort: compile from source.
@@ -910,6 +965,7 @@ provision_python() {
     command -v "$PYTHON_BIN" &>/dev/null || \
         halt "Could not install a supported Python — install Python $PYTHON_MIN-$PYTHON_MAX by hand."
     good "Python installed ($PYTHON_BIN)."
+    ensure_python_build_deps
 }
 
 # ---------------------------------------------------------------------------

@@ -2239,6 +2239,69 @@ else
     bad "pkg_add's apt branch can block on a debconf prompt: [$apt_line]"
 fi
 
+# Issue #148: reusing an interpreter must still provision matching headers.
+if ( set -Eeuo pipefail
+    OS_FAMILY=debian; ID=ubuntu
+    locate_python() { PYTHON_BIN=python3.14; return 0; }
+    python3.14() { printf '3.14\n'; }
+    ready=0
+    python_build_ready() { [ "$ready" = 1 ]; }
+    refresh_pkg_index() { :; }
+    pkg_add() {
+        [ "$*" = 'build-essential python3.14-dev' ] || exit 1
+        ready=1
+    }
+    provision_python >/dev/null
+    [ "$ready" = 1 ]
+); then
+    ok "existing Python 3.14 gets matching headers and build tools"
+else
+    bad "existing Python skips native build prerequisites"
+fi
+
+if ( set -Eeuo pipefail
+    OS_FAMILY=debian; PYTHON_BIN=python3.14
+    python3.14() { printf '3.14\n'; }
+    python_build_ready() { return 1; }
+    refresh_pkg_index() { :; }
+    pkg_add() { return 0; } # warn-and-continue package failure
+    halt() { return 1; }
+    ensure_python_build_deps >/dev/null 2>&1
+); then
+    bad "missing headers were accepted after package installation failed"
+else
+    ok "missing build prerequisites fail before pip"
+fi
+
+if ( set -Eeuo pipefail
+    OS_FAMILY=debian; ID=ubuntu; installed=0; checked=0
+    locate_python() { [ "$installed" = 1 ] && { PYTHON_BIN=python3.14; return 0; }; return 1; }
+    refresh_pkg_index() { :; }
+    pkg_add() {
+        [ "$*" = 'python3 python3-venv python3-dev' ] || exit 1
+        installed=1
+    }
+    ensure_python_build_deps() { checked=1; }
+    add-apt-repository() { exit 1; }
+    provision_python >/dev/null
+    [ "$installed" = 1 ] && [ "$checked" = 1 ]
+); then
+    ok "Ubuntu uses its supported default Python without a PPA"
+else
+    bad "Ubuntu did not use its default Python first"
+fi
+
+if ( set -Eeuo pipefail
+    python_build_ready() { return 0; }
+    pkg_add() { exit 1; }
+    refresh_pkg_index() { exit 1; }
+    ensure_python_build_deps
+); then
+    ok "working native build environment needs no package changes"
+else
+    bad "working native build environment tried to install packages"
+fi
+
 # -- static guard: the documented insecure site must keep shipping, since both
 #    the docs and SERVERKIT_EXTERNAL_PROXY point operators straight at it.
 if [ -f "$REPO_DIR/nginx/sites-available/serverkit-insecure.conf" ] \

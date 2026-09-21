@@ -165,6 +165,28 @@ else
     else
         bad "it cannot create a virtualenv"
     fi
+    # Force a source build: a cached/platform wheel would hide missing Python.h
+    # and compilers, the exact gap behind issue #148. Use the production pin.
+    native_requirement=$(grep '^gevent==' "$REPO_DIR/backend/requirements.txt")
+    if /tmp/pp-venv/bin/python -m pip install --no-cache-dir --no-binary=gevent \
+        "$native_requirement" >/tmp/pp-native.log 2>&1 \
+        && /tmp/pp-venv/bin/python -c 'import gevent' >/dev/null 2>&1; then
+        ok "the pinned gevent dependency builds from source and imports"
+    else
+        bad "native dependency build failed"
+        tail -40 /tmp/pp-native.log
+    fi
+    # Ubuntu 26.04 is the regression target; validate all backend pins there.
+    if [ "${ID:-}" = ubuntu ] && [ "${VERSION_ID:-}" = 26.04 ]; then
+        if /tmp/pp-venv/bin/python -m pip install \
+            -r "$REPO_DIR/backend/requirements.txt" >/tmp/pp-requirements.log 2>&1 \
+            && /tmp/pp-venv/bin/python -m pip check >>/tmp/pp-requirements.log 2>&1; then
+            ok "all backend requirements install with consistent dependencies"
+        else
+            bad "backend requirements failed"
+            tail -40 /tmp/pp-requirements.log
+        fi
+    fi
     rm -rf /tmp/pp-venv
 fi
 
