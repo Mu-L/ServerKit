@@ -400,7 +400,9 @@ def published_host_ports(project_path: str, compose_file: str = None) -> Optiona
     port check rather than assume the ports are free.
     """
     try:
-        containers = DockerService.compose_ps(project_path, compose_file)
+        # strict: a failed listing must read as "unknown", not "owns nothing" —
+        # otherwise every redeploy flags the app's own ports as taken.
+        containers = DockerService.compose_ps(project_path, compose_file, strict=True)
     except Exception as exc:  # pragma: no cover - defensive
         logger.debug('compose ps failed for %s: %s', project_path, exc)
         return None

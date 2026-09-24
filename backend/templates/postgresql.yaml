@@ -2,7 +2,7 @@ id: postgresql
 name: PostgreSQL
 version: "16"
 description: Standards-compliant relational database with JSONB, full-text search and a deep extension ecosystem
-icon: https://serverkit.ai/imgs/template-icons/postgresql.svg
+icon: https://serverkit.ai/imgs/template-icons/postgres.svg
 categories:
   - database
   - sql

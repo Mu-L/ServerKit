@@ -11,6 +11,13 @@
 #   BUILD_FROM_SOURCE=1      force a source build even when a release exists
 #   SERVERKIT_SKIP_SSL=1     run on plain HTTP (no HTTPS / no certbot attempt)
 #
+# The first account becomes the administrator, so a fresh panel asks for a
+# one-time setup code (printed at the end; `serverkit setup-code` repeats it).
+# Unattended installs can create the admin instead and skip the code:
+#
+#   SERVERKIT_ADMIN_EMAIL=...     with SERVERKIT_ADMIN_PASSWORD (8+ chars);
+#   SERVERKIT_ADMIN_USERNAME=...  optional, defaults to the email's local part
+#
 # Running your own reverse proxy (Caddy / Traefik / nginx) in front of the panel:
 #
 #   SERVERKIT_EXTERNAL_PROXY=1   your proxy terminates TLS; ours must not
@@ -800,10 +807,58 @@ build_python_from_source() {
     return 0
 }
 
+python_build_ready() {
+    command -v make >/dev/null 2>&1 || return 1
+    # Compile against THIS interpreter's headers, including pyconfig.h. Merely
+    # finding a Python executable or a different version's -dev package is not
+    # enough for pip's native dependencies (issue #148).
+    "$PYTHON_BIN" - <<'PY' >/dev/null 2>&1
+import pathlib
+import shlex
+import subprocess
+import sysconfig
+import tempfile
+
+with tempfile.TemporaryDirectory(prefix='serverkit-python-build-') as work:
+    source = pathlib.Path(work) / 'probe.c'
+    source.write_text('#include <Python.h>\nint main(void) { return 0; }\n')
+    includes = {sysconfig.get_path('include'), sysconfig.get_path('platinclude')}
+    command = shlex.split(sysconfig.get_config_var('CC') or 'cc')
+    command += ['-I' + path for path in includes if path]
+    command += ['-c', str(source), '-o', str(pathlib.Path(work) / 'probe.o')]
+    subprocess.run(command, check=True)
+PY
+}
+
+ensure_python_build_deps() {
+    python_build_ready && return 0
+    local v
+    v=$("$PYTHON_BIN" -c 'import sys;print(".".join(map(str,sys.version_info[:2])))')
+    step "Installing build tools and headers for Python $v..."
+    refresh_pkg_index
+    case "$OS_FAMILY" in
+        debian) pkg_add build-essential "python${v}-dev" ;;
+        fedora|rhel) pkg_add gcc make "python${v}-devel" ;;
+        suse) pkg_add gcc make "python${v//./}-devel" ;;
+        arch) pkg_add base-devel python ;;
+        alpine) pkg_add build-base python3-dev ;;
+        gentoo) pkg_add sys-devel/gcc sys-devel/make "dev-lang/python:${v}" ;;
+    esac
+    # pkg_add deliberately warns and continues. Probe again so failure is
+    # reported here, rather than much later as an opaque pip build failure.
+    if ! python_build_ready; then
+        halt "Native Python dependencies cannot be built with $PYTHON_BIN (Python $v).
+       Install a C compiler, make, and the matching Python development headers, then re-run.
+       On Debian/Ubuntu: apt-get install build-essential python${v}-dev"
+        return 1
+    fi
+}
+
 provision_python() {
     phase "Installing Python"
 
-    # Already have a supported interpreter? Nothing to do.
+    # Native build prerequisites are checked by build_virtualenv only when a
+    # local build is needed; a working release venv does not need a compiler.
     if locate_python; then
         return
     fi
@@ -818,6 +873,11 @@ provision_python() {
     # state probe (command -v) to decide whether the next fallback is needed.
     if [ "$OS_FAMILY" = "debian" ]; then
         if [ "${ID:-}" = "ubuntu" ]; then
+            refresh_pkg_index
+            pkg_add python3 python3-venv python3-dev
+            if locate_python; then
+                return
+            fi
             pkg_add python3.12 python3.12-venv python3.12-dev
             if ! command -v python3.12 &>/dev/null; then
                 step "Adding deadsnakes PPA for Python 3.12..."
@@ -1383,6 +1443,9 @@ build_virtualenv() {
         fi
     fi
 
+    # Existing interpreters may have venv support without the headers needed
+    # by pip. Check after the release fast path, including its local fallback.
+    ensure_python_build_deps || return $?
     step "Creating the virtual environment..."
     $PYTHON_BIN -m venv "$VENV_DIR"
     if [ ! -f "$VENV_DIR/bin/activate" ]; then
@@ -2529,6 +2592,32 @@ snapshot_existing() {
 # ---------------------------------------------------------------------------
 # Closing summary
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# First administrator
+# ---------------------------------------------------------------------------
+# Until an account exists, whoever registers first owns the panel, so the
+# panel requires a one-time setup code for that registration. Show it to the
+# person running the installer, or skip it entirely when they named the admin.
+claim_first_admin() {
+    SETUP_CODE=""
+    ADMIN_CREATED=""
+    local backend="$INSTALL_DIR/backend" python="$VENV_DIR/bin/python"
+    [ -x "$python" ] || return 0
+    if [ -n "${SERVERKIT_ADMIN_EMAIL:-}" ] && [ -n "${SERVERKIT_ADMIN_PASSWORD:-}" ]; then
+        local username="${SERVERKIT_ADMIN_USERNAME:-${SERVERKIT_ADMIN_EMAIL%%@*}}"
+        if (cd "$backend" && "$python" cli.py create-admin --email "$SERVERKIT_ADMIN_EMAIL" \
+                --username "$username" --password "$SERVERKIT_ADMIN_PASSWORD") >/dev/null 2>&1; then
+            ADMIN_CREATED="$SERVERKIT_ADMIN_EMAIL"
+        else
+            warn "Could not create the admin from SERVERKIT_ADMIN_EMAIL (it may already exist)."
+        fi
+    fi
+    # Last line only: creating the app can log first. Anything that is not a
+    # code means the panel already has an account (an upgrade, or the above).
+    SETUP_CODE=$(cd "$backend" && "$python" cli.py setup-code 2>/dev/null | tail -n 1 \
+        | grep -E '^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$' || true)
+}
+
 print_outro() {
     local ip
     ip=$(curl -sf --max-time 5 https://api.ipify.org 2>/dev/null || \
@@ -2561,7 +2650,15 @@ print_outro() {
         printf '                 certbot, or set SERVERKIT_SKIP_SSL=1 to suppress this warning.\n'
     fi
 
-    printf '\n  %sFirst step%s     create an admin user\n\n' "$BLD" "$RST"
+    if [ -n "${ADMIN_CREATED:-}" ]; then
+        printf '\n  %sAdmin%s          %s (from SERVERKIT_ADMIN_EMAIL) - sign in\n\n' "$BLD" "$RST" "$ADMIN_CREATED"
+    elif [ -n "${SETUP_CODE:-}" ]; then
+        printf '\n  %sSetup code%s     %s%s%s\n' "$BLD" "$RST" "$BLD" "$SETUP_CODE" "$RST"
+        printf '                 The setup page asks for it before creating the admin.\n'
+        printf '                 Show it again: serverkit setup-code\n\n'
+    else
+        printf '\n'
+    fi
 
     printf '  %sCLI%s            serverkit status\n' "$BLD" "$RST"
     printf '                 serverkit create-admin\n'
@@ -2745,6 +2842,7 @@ main() {
     set -e
 
     ping_telemetry
+    claim_first_admin
     print_outro
 }
 

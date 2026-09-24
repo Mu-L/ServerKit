@@ -35,7 +35,8 @@ Choose your preferred installation method:
 After installation:
 
 1. Access ServerKit at `http://your-server-ip`
-2. Create your admin account (first user becomes admin)
+2. Create your admin account with the setup code the installer printed
+   (`serverkit setup-code` shows it again; the first user becomes admin)
 3. [Enable Two-Factor Authentication](INSTALLATION.md#enable-two-factor-authentication)
 4. [Configure Notifications](INSTALLATION.md#configure-notification-webhooks)
 

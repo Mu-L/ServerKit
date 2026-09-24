@@ -97,6 +97,20 @@ try:
             cur.execute('PRAGMA journal_mode=MEMORY')
             cur.execute('PRAGMA temp_store=MEMORY')
             cur.close()
+
+    from sqlalchemy.pool import Pool  # noqa: E402
+
+    @event.listens_for(Pool, 'checkout')
+    def _foreign_keys_off_per_checkout(dbapi_connection, _record, _proxy):
+        """Every checkout starts at SQLite's default: no FK enforcement.
+
+        A test that turns enforcement on does it on the connection it checked
+        out, but its cleanup could land on a different pooled connection, so
+        an enforcing one leaked into later tests (CI failed
+        test_workspace_scope depending only on which shard it landed in).
+        """
+        if isinstance(dbapi_connection, sqlite3.Connection):
+            dbapi_connection.execute('PRAGMA foreign_keys=OFF')
 except ImportError:
     pass
 

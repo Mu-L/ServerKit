@@ -81,9 +81,13 @@ serverkit uninstall
 ### User Management
 
 ```bash
+# Show the setup code the first admin registration needs
+serverkit setup-code
+
 # Create admin user
 serverkit create-admin
 # Prompts for: email, username, password
+# (or: serverkit create-admin --email a@b.com --username admin --password '...')
 
 # Reset a user's password
 serverkit reset-password

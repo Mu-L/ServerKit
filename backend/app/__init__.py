@@ -312,6 +312,16 @@ def create_app(config_name=None):
                 import logging
                 logging.getLogger(__name__).warning(f'Host snapshot skipped: {e}')
 
+        # A panel with no account yet logs its one-time setup code, so the
+        # owner can read it from the service log (setup_code_service).
+        if not app.config.get('TESTING'):
+            try:
+                from app.services import setup_code_service
+                setup_code_service.ensure()
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f'Setup code unavailable: {e}')
+
         # Seed bundled flagship extensions (D4) — WordPress ships installed by
         # default on every panel (fresh and upgrade) unless the user uninstalled
         # it. Done BEFORE load_all_plugins so the loader registers the seeded

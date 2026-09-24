@@ -87,9 +87,24 @@ def create_admin(email, username, password):
 
         # Mark setup as complete so the UI doesn't show the setup wizard
         from app.services.settings_service import SettingsService
+        from app.services import setup_code_service
         SettingsService.complete_setup(user_id=user.id)
+        setup_code_service.consume()
 
         click.echo(click.style(f'Admin user "{username}" created successfully!', fg='green'))
+
+
+@cli.command()
+def setup_code():
+    """Show the one-time code that creating the first admin requires."""
+    app = create_app()
+    with app.app_context():
+        from app.services import setup_code_service
+        code = setup_code_service.ensure()
+        if not code:
+            click.echo('This panel already has an account; no setup code is needed.')
+            return
+        click.echo(code)
 
 
 @cli.command()

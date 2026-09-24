@@ -67,6 +67,8 @@ Environment:
   NGROK_DOMAIN               Optional reserved ngrok domain
   NGROK_AUTHTOKEN            Optional ngrok authtoken
   SERVERKIT_KILL_PORTS=0     Disable startup cleanup of configured dev ports
+  SERVERKIT_DEV_DATABASE_URL Use another database (e.g. a throwaway sqlite
+                             file for a panel that starts in first-run setup)
 
 Defaults:
   ServerKit uses stable non-default local ports: backend 47927, frontend 41921.
@@ -524,7 +526,7 @@ export_dev_env() {
 
     export FLASK_ENV=development
     export PORT="$BACKEND_ACTUAL_PORT"
-    export DATABASE_URL="sqlite:///$BACKEND_DIR/instance/serverkit.db"
+    export DATABASE_URL="${SERVERKIT_DEV_DATABASE_URL:-sqlite:///$BACKEND_DIR/instance/serverkit.db}"
     export CORS_ORIGINS="$DEV_CORS_ORIGINS"
     export VITE_API_URL="$API_URL"
 }

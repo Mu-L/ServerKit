@@ -3,6 +3,7 @@ import { useAuth } from '../../contexts/useAuth.js';
 import { Info } from 'lucide-react';
 
 import { Input } from '@/components/ui/input';
+import { FormField } from '../FormField';
 import { Label } from '@/components/ui/label';
 import { useTranslation } from 'react-i18next';
 import { Button as SharedButton } from '@/components/ui/button';
@@ -13,9 +14,10 @@ const SetupStepAccount = ({ onComplete }) => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
+    const [setupCode, setSetupCode] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
-    const { register, login, registrationEnabled } = useAuth();
+    const { register, login, registrationEnabled, setupCodeRequired } = useAuth();
 
     // If users already exist (e.g. admin created via CLI), show login form instead
     const showLogin = !registrationEnabled;
@@ -37,7 +39,7 @@ const SetupStepAccount = ({ onComplete }) => {
         setLoading(true);
 
         try {
-            await register(email, username, password);
+            await register(email, username, password, undefined, setupCodeRequired ? setupCode : undefined);
             onComplete({ email, username });
         } catch (err) {
             setError(err.message || 'Failed to create admin account');
@@ -133,6 +135,26 @@ const SetupStepAccount = ({ onComplete }) => {
             {error && <div className="error-message">{error}</div>}
 
             <form onSubmit={handleRegister}>
+                {setupCodeRequired && (
+                    <FormField
+                        htmlFor="setupCode"
+                        label={t('app.setupStepAccount.setupCode', 'Setup code')}
+                        hint={t('app.setupStepAccount.setupCodeHint', 'Shown at the end of the install. On the server, run: serverkit setup-code')}
+                    >
+                        <Input
+                            type="text"
+                            id="setupCode"
+                            value={setupCode}
+                            onChange={(e) => setSetupCode(e.target.value)}
+                            placeholder={t('app.setupStepAccount.setupCodePlaceholder', 'XXXX-XXXX-XXXX')}
+                            autoComplete="off"
+                            spellCheck={false}
+                            required
+                            autoFocus
+                        />
+                    </FormField>
+                )}
+
                 <div className="form-group">
                     <Label htmlFor="email">{t('app.setupStepAccount.adminEmail', 'Admin Email')}</Label>
                     <Input
@@ -142,7 +164,7 @@ const SetupStepAccount = ({ onComplete }) => {
                         onChange={(e) => setEmail(e.target.value)}
                         placeholder="admin@example.com"
                         required
-                        autoFocus
+                        autoFocus={!setupCodeRequired}
                     />
                 </div>
 

@@ -285,6 +285,7 @@ cmd_help() {
     echo "User Management:"
     echo "  create-admin      Create a new admin user"
     echo "  reset-password    Reset a user's password"
+    echo "  setup-code        Show the code that creating the first admin requires"
     echo "  unlock-user       Unlock a locked user account"
     echo "  list-users        List all users"
     echo "  make-admin        Promote user to admin"
@@ -371,7 +372,7 @@ cmd_completion() {
 _serverkit() {
     local cur commands
     cur="${COMP_WORDS[COMP_CWORD]}"
-    commands="help start stop restart status logs update branch version check-update uninstall create-admin reset-password unlock-user list-users make-admin deactivate-user activate-user init-db migrate-db db-migrate db-status db-history backup-db restore-db disk cleanup-apps factory-reset generate-keys config setup-proxy create-app deploy-template list-servers deployment-status list-apps start-app stop-app app-logs add-site list-sites remove-site doctor manifest services apps repair login-url support-bundle connect panel-status panel-doctor completion"
+    commands="help start stop restart status logs update branch version check-update uninstall create-admin reset-password setup-code unlock-user list-users make-admin deactivate-user activate-user init-db migrate-db db-migrate db-status db-history backup-db restore-db disk cleanup-apps factory-reset generate-keys config setup-proxy create-app deploy-template list-servers deployment-status list-apps start-app stop-app app-logs add-site list-sites remove-site doctor manifest services apps repair login-url support-bundle connect panel-status panel-doctor completion"
 
     if [ "$COMP_CWORD" -eq 1 ]; then
         COMPREPLY=( $(compgen -W "$commands" -- "$cur") )
@@ -733,18 +734,23 @@ cmd_uninstall() {
 cmd_create_admin() {
     check_installed
     print_info "Creating admin user..."
-    run_cli create-admin
+    run_cli create-admin "$@"
 }
 
 cmd_reset_password() {
     check_installed
     print_info "Resetting password..."
-    run_cli reset-password
+    run_cli reset-password "$@"
+}
+
+cmd_setup_code() {
+    check_installed
+    run_cli setup-code
 }
 
 cmd_unlock_user() {
     check_installed
-    run_cli unlock-user
+    run_cli unlock-user "$@"
 }
 
 cmd_list_users() {
@@ -754,17 +760,17 @@ cmd_list_users() {
 
 cmd_make_admin() {
     check_installed
-    run_cli make-admin
+    run_cli make-admin "$@"
 }
 
 cmd_deactivate_user() {
     check_installed
-    run_cli deactivate-user
+    run_cli deactivate-user "$@"
 }
 
 cmd_activate_user() {
     check_installed
-    run_cli activate-user
+    run_cli activate-user "$@"
 }
 
 cmd_init_db() {
@@ -1587,26 +1593,35 @@ case "${1:-help}" in
         cmd_uninstall "$@"
         ;;
     create-admin)
-        cmd_create_admin
+        shift
+        cmd_create_admin "$@"
         ;;
     reset-password)
-        cmd_reset_password
+        shift
+        cmd_reset_password "$@"
+        ;;
+    setup-code)
+        cmd_setup_code
         ;;
     unlock-user)
-        cmd_unlock_user
+        shift
+        cmd_unlock_user "$@"
         ;;
     list-users)
         shift
         cmd_list_users "$@"
         ;;
     make-admin)
-        cmd_make_admin
+        shift
+        cmd_make_admin "$@"
         ;;
     deactivate-user)
-        cmd_deactivate_user
+        shift
+        cmd_deactivate_user "$@"
         ;;
     activate-user)
-        cmd_activate_user
+        shift
+        cmd_activate_user "$@"
         ;;
     init-db)
         cmd_init_db

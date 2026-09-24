@@ -26,9 +26,9 @@ def test_catalog_has_all_25_published_targets_and_unique_probes():
         for target in catalog['targets']
         for probe in target.get('probes', [])
     ]
-    assert len(probes) == 25
-    assert len({probe['key'] for probe in probes}) == 25
-    assert sum(probe['fidelity'] == 'exact' for probe in probes) == 22
+    assert len(probes) == 26
+    assert len({probe['key'] for probe in probes}) == 26
+    assert sum(probe['fidelity'] == 'exact' for probe in probes) == 23
     assert sum(probe['fidelity'] == 'proxy' for probe in probes) == 3
 
 
@@ -45,6 +45,8 @@ def test_sandbox_registry_is_generated_from_catalog_plus_legacy_probes():
     assert {'debian13', 'rocky10', 'alma10', 'centosstream10', 'arch', 'gentoo'} <= set(DISTROS)
     assert DISTROS['rhel10ubi']['fidelity'] == 'proxy'
     assert DISTROS['ubuntu24']['full_image']
+    assert DISTROS['ubuntu26']['quick_image'] == 'ubuntu:26.04'
+    assert DISTROS['ubuntu26']['full_image'] is None
     assert DISTROS['rocky10']['full_image'] is None
 
 

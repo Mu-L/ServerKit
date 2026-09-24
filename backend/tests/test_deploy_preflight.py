@@ -70,7 +70,7 @@ def _stub_compose(monkeypatch, *, valid=True, config=None, build=True,
             calls.append('pull') or
             ({'success': True} if pull else {'success': False, 'error': 'manifest unknown'}))))
     monkeypatch.setattr(DockerService, 'compose_ps', classmethod(
-        lambda cls, path, compose_file=None: (calls.append('ps') or (ps if ps is not None else []))))
+        lambda cls, path, compose_file=None, **kw: (calls.append('ps') or (ps if ps is not None else []))))
     monkeypatch.setattr(DockerService, 'compose_down', classmethod(
         lambda cls, path, **kw: calls.append('DOWN') or {'success': True}))
     monkeypatch.setattr(DockerService, 'compose_up', classmethod(
@@ -209,7 +209,7 @@ def test_unknown_port_ownership_skips_the_check_rather_than_aborting(app, monkey
     _stub_compose(monkeypatch,
                   config={'services': {'web': {'image': 'nginx', 'ports': ['8080:80']}}})
     monkeypatch.setattr(DockerService, 'compose_ps', classmethod(
-        lambda cls, path, compose_file=None: (_ for _ in ()).throw(RuntimeError('no docker'))))
+        lambda cls, path, compose_file=None, **kw: (_ for _ in ()).throw(RuntimeError('no docker'))))
     monkeypatch.setattr(ManifestApplyService, '_port_bound',
                         staticmethod(lambda port: True))
 
@@ -233,7 +233,7 @@ def test_short_port_syntax_parsing(spec, expected):
 def test_legacy_ports_string_is_understood(app, monkeypatch):
     """Older compose ps output carries `Ports` as a string, not `Publishers`."""
     monkeypatch.setattr(DockerService, 'compose_ps', classmethod(
-        lambda cls, path, compose_file=None: [
+        lambda cls, path, compose_file=None, **kw: [
             {'Ports': '0.0.0.0:8080->80/tcp, :::8080->80/tcp'},
             {'Ports': '127.0.0.1:5432->5432/tcp'},
         ]))
@@ -397,3 +397,24 @@ def test_deploy_docker_pulls_before_it_stops(app, monkeypatch, tmp_path):
 
     assert result['success'] is True
     assert calls == ['pull', 'STOP', 'REMOVE', 'RUN']
+
+
+def test_an_unreadable_project_is_unknown_not_empty(app, monkeypatch):
+    """docker-compose v1 has no `ps --format json`: the listing fails. That
+    must skip the port check, not flag the app's own ports as taken."""
+    from app.services import deploy_preflight_service as preflight
+    monkeypatch.setattr(DockerService, 'run_compose', classmethod(
+        lambda cls, cmd, cwd=None, **kw: {'success': False, 'output': '', 'error': 'unknown flag: --format'}))
+    assert DockerService.compose_ps('/srv/app') == []
+    assert DockerService.compose_ps('/srv/app', strict=True) is None
+    assert preflight.published_host_ports('/srv/app') is None
+    # v1 exits 0 with its usage text instead of failing outright.
+    monkeypatch.setattr(DockerService, 'run_compose', classmethod(
+        lambda cls, cmd, cwd=None, **kw: {'success': True, 'output': '', 'returncode': 0,
+                                          'stderr': 'List containers.\n\nUsage: ps [options]'}))
+    assert DockerService.compose_ps('/srv/app', strict=True) is None
+    assert preflight.published_host_ports('/srv/app') is None
+    # A project that genuinely has no containers is still an empty set.
+    monkeypatch.setattr(DockerService, 'run_compose', classmethod(
+        lambda cls, cmd, cwd=None, **kw: {'success': True, 'output': '', 'stderr': '', 'returncode': 0}))
+    assert preflight.published_host_ports('/srv/app') == set()

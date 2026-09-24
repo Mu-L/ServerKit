@@ -265,7 +265,10 @@ docker compose ps
 Open your browser and navigate to `http://your-server-ip:5000` (override the
 published port with `SERVERKIT_HTTP_PORT` in `.env`).
 
-Create your admin account on first visit.
+Create your admin account on first visit. The setup page asks for the
+first-run setup code, which the container logs at startup
+(`docker logs serverkit | grep 'setup code'`) and prints on demand:
+`docker exec serverkit python cli.py setup-code`.
 
 The container speaks plain HTTP only — it has no certificates and no HTTPS
 listener. For TLS, terminate it in a reverse proxy in front of the container:
@@ -716,8 +719,15 @@ TLS handshake fails. Install the root in its system trust store
 ### 1. Create Admin Account
 
 1. Open ServerKit in your browser
-2. Click "Register" to create your admin account
+2. Enter the **setup code** printed at the end of the install
+   (`serverkit setup-code` shows it again), then create your admin account
 3. The first registered user automatically becomes admin
+
+The setup code stops anyone who reaches a freshly installed panel before you
+from claiming it; it stops working once the admin exists. For unattended
+installs, set `SERVERKIT_ADMIN_EMAIL` and `SERVERKIT_ADMIN_PASSWORD` (and
+optionally `SERVERKIT_ADMIN_USERNAME`) when running the installer to create
+the admin directly — no setup code involved.
 
 ### 2. Update ClamAV Definitions
 
