@@ -10,6 +10,8 @@ export function AuthProvider({ children }) {
     const [setupStatus, setSetupStatus] = useState({
         needsSetup: false,
         registrationEnabled: false,
+        // A fresh panel's first registration needs the server's setup code.
+        setupCodeRequired: false,
         ssoProviders: [],
         passwordLoginEnabled: true,
         // Build-time default until the pre-auth fetch resolves (avoids a title flash
@@ -48,6 +50,7 @@ export function AuthProvider({ children }) {
             setSetupStatus({
                 needsSetup: status.needs_setup,
                 registrationEnabled: status.registration_enabled,
+                setupCodeRequired: !!status.setup_code_required,
                 ssoProviders: status.sso_providers || [],
                 passwordLoginEnabled: status.password_login_enabled !== false,
                 panelTitle: status.panel_title || import.meta.env.VITE_PANEL_TITLE || 'ServerKit',
@@ -73,6 +76,7 @@ export function AuthProvider({ children }) {
                 ...prev,
                 needsSetup: true,
                 registrationEnabled: true,
+                setupCodeRequired: true,
                 checked: true
             }));
             await checkAuth();
@@ -96,6 +100,7 @@ export function AuthProvider({ children }) {
             setSetupStatus({
                 needsSetup: status.needs_setup,
                 registrationEnabled: status.registration_enabled,
+                setupCodeRequired: !!status.setup_code_required,
                 ssoProviders: status.sso_providers || [],
                 passwordLoginEnabled: status.password_login_enabled !== false,
                 panelTitle: status.panel_title || import.meta.env.VITE_PANEL_TITLE || 'ServerKit',
@@ -116,8 +121,8 @@ export function AuthProvider({ children }) {
         return data;
     }
 
-    async function register(email, username, password, inviteToken) {
-        const data = await api.register(email, username, password, inviteToken);
+    async function register(email, username, password, inviteToken, setupCode) {
+        const data = await api.register(email, username, password, inviteToken, setupCode);
         setUser(data.user);
         return data;
     }
@@ -141,6 +146,7 @@ export function AuthProvider({ children }) {
             ...prev,
             needsSetup: false,
             registrationEnabled: false,
+            setupCodeRequired: false,
             checked: true
         }));
     }
@@ -196,6 +202,7 @@ export function AuthProvider({ children }) {
         needsMigration: setupStatus.needsMigration,
         migrationInfo: setupStatus.migrationInfo,
         registrationEnabled: setupStatus.registrationEnabled,
+        setupCodeRequired: setupStatus.setupCodeRequired,
         ssoProviders: setupStatus.ssoProviders,
         passwordLoginEnabled: setupStatus.passwordLoginEnabled,
         panelTitle: setupStatus.panelTitle,

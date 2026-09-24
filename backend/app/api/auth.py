@@ -41,9 +41,17 @@ def get_setup_status():
     from app.services.migration_service import MigrationService
     migration_status = MigrationService.get_status()
 
+    # Never the code itself: only whether the first registration must carry
+    # it. Asking also mints and logs it if this panel has none yet.
+    from app.services import setup_code_service
+    setup_code_required = setup_code_service.required()
+    if setup_code_required:
+        setup_code_service.ensure()
+
     return jsonify({
         'needs_setup': needs_setup,
         'registration_enabled': registration_enabled,
+        'setup_code_required': setup_code_required,
         'sso_providers': sso_providers,
         'password_login_enabled': password_login_enabled,
         # Pre-auth branding (read by the login page before any authed call).
@@ -96,6 +104,15 @@ def register():
     if not all([email, username, password]):
         raise ValidationError('Missing required fields', code='auth.missing_fields')
 
+    # The first account becomes the administrator: reaching a fresh panel
+    # first must not be enough to own it (setup_code_service).
+    from app.services import setup_code_service
+    if is_first_user and not setup_code_service.verify(data.get('setup_code')):
+        logger.warning(f"First-user registration refused: wrong or missing setup code. IP: {request.remote_addr}")
+        raise PermissionDeniedError(
+            'Enter the setup code for this server. Run `serverkit setup-code` on the server to see it.',
+            code='auth.setup_code_invalid')
+
     if User.query.filter(func.lower(User.email) == func.lower(email)).first():
         raise ConflictError('This email or username is unavailable', code='auth.identity_unavailable')
 
@@ -126,6 +143,8 @@ def register():
 
     db.session.add(user)
     db.session.commit()
+    if is_first_user:
+        setup_code_service.consume()
 
     # Mark invitation accepted
     if invitation:

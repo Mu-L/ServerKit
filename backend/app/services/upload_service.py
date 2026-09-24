@@ -84,10 +84,13 @@ def extract_version(app_dir, zippath, version):
 
     with zipfile.ZipFile(zippath, 'r') as zf:
         # If every top-level entry shares a single folder, strip it so the
-        # version directory contains the app files directly.
+        # version directory contains the app files directly. Only a real
+        # folder counts: an archive holding one file (a lone
+        # docker-compose.yml) has that file as its common path, and treating
+        # it as a folder used to strip it to nothing.
         names = zf.namelist()
         top = os.path.commonpath(names).split('/')[0] if names else ''
-        has_top_folder = top and all(n.startswith(top + '/') or n == top for n in names)
+        has_top_folder = top and all(n.startswith(top + '/') for n in names)
 
         if has_top_folder:
             for info in zf.infolist():

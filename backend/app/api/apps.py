@@ -837,6 +837,20 @@ def create_app_from_repository():
         _ws_id = WorkspaceService.ensure_default_workspace().id
     project_id, environment_id = _resolve_project_env(data, _ws_id)
 
+    # A repository whose manifest is a compose file deploys as that compose
+    # project — every service it declares (a database next to the web app),
+    # exactly like an uploaded archive. Building only the Dockerfile it also
+    # contains used to start the web container without its database. An
+    # explicit non-compose choice from the caller still wins.
+    compose_file = None
+    if (manifest_strategy == 'docker_compose' and app_type in ('auto', 'docker')
+            and build_method in ('auto', 'dockerfile')):
+        compose_file = next((m.get('file') for m in manifest.get('manifests') or []
+                             if m.get('type') == 'docker_compose'), None)
+    managed_by = 'docker_compose' if compose_file else None
+    if compose_file:
+        resolved_app_type = 'docker'
+
     app = Application(
         name=name,
         app_type=resolved_app_type,
@@ -844,10 +858,12 @@ def create_app_from_repository():
         root_path=app_path,
         user_id=user.id,
         port=port,
+        compose_file=compose_file,
+        managed_by=managed_by,
         buildpack_type=buildpack_type,
         buildpack_plan=json.dumps(buildpack_plan) if buildpack_plan else None,
         buildpack_overrides=json.dumps(buildpack_overrides) if buildpack_overrides else None,
-        ingress_plane=_resolve_ingress_plane(data, resolved_app_type),
+        ingress_plane=_resolve_ingress_plane(data, resolved_app_type, managed_by),
         project_id=project_id,
         environment_id=environment_id,
     )

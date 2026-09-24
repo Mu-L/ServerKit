@@ -1209,7 +1209,7 @@ class DockerService:
             return {'success': False, 'error': str(e)}
 
     @classmethod
-    def compose_ps(cls, project_path, compose_file=None):
+    def compose_ps(cls, project_path, compose_file=None, strict=False):
         """List Docker Compose services.
 
         Handles multiple output formats from docker compose ps --format json:
@@ -1217,7 +1217,10 @@ class DockerService:
         - JSON Array: Single line with array of objects
         - Mixed: Warning messages (time=...) mixed with JSON
 
-        Returns a list of container dictionaries.
+        Returns a list of container dictionaries. A failed listing (e.g. the
+        legacy docker-compose v1, which has no ``--format json``) is also an
+        empty list unless ``strict``, which returns None instead — for callers
+        that must not mistake "could not tell" for "no containers".
         """
         try:
             result = cls.run_compose(
@@ -1243,10 +1246,15 @@ class DockerService:
                     except json.JSONDecodeError:
                         continue
                 return containers
+            # docker-compose v1 answers `--format json` with its usage text on
+            # stderr and exit code 0: "success" with nothing listed.
+            unsupported = 'usage:' in (result.get('stderr') or '').lower()
+            if strict and (not result['success'] or unsupported):
+                return None
             return []
         except Exception as e:
             logger.error(f"Failed to list compose services: {e}")
-            return []
+            return None if strict else []
 
     @classmethod
     def compose_logs(cls, project_path, service=None, tail=100, compose_file=None):

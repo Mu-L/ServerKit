@@ -16,9 +16,10 @@ export async function login(email, password) {
     return data;
 }
 
-export async function register(email, username, password, inviteToken) {
+export async function register(email, username, password, inviteToken, setupCode) {
     const body = { email, username, password };
     if (inviteToken) body.invite_token = inviteToken;
+    if (setupCode) body.setup_code = setupCode;
     const data = await this.request('/auth/register', {
         method: 'POST',
         body,

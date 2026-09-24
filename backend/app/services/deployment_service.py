@@ -118,65 +118,69 @@ class DeploymentService:
             app.status = 'deploying'
             db.session.commit()
 
-            # Step 1: Build
-            deployment.status = 'building'
-            deployment.build_started_at = datetime.utcnow()
-            db.session.commit()
+            # A Docker app deployed from Git builds its branch's latest commit:
+            # "Deploy latest" and push webhooks both end up here, and building
+            # the stale checkout redeployed old code. Non-Docker apps pull in
+            # _deploy_traditional instead.
+            if app.app_type == 'docker':
+                pull_result = cls._pull_latest(app, log_callback)
+                if not pull_result.get('success'):
+                    return cls._fail(app, deployment, pull_result.get('error') or 'Git pull failed')
 
-            if log_callback:
-                log_callback(f"Starting build for {app.name}...")
-
-            build_result = BuildService.build(
-                app_id,
-                no_cache=no_cache,
-                log_callback=log_callback
-            )
-
-            deployment.build_completed_at = datetime.utcnow()
-
-            if not build_result.get('success'):
-                deployment.status = 'failed'
-                deployment.error_message = build_result.get('error', 'Build failed')
-                app.status = 'error'
+            if cls._uses_compose(app):
+                # The whole compose project: build, validate and pull while
+                # the current release keeps serving, then switch over.
+                deployment.status = 'building'
+                deployment.build_started_at = datetime.utcnow()
                 db.session.commit()
-                return {
-                    'success': False,
-                    'error': deployment.error_message,
-                    'deployment': deployment.to_dict()
-                }
-
-            # Store build artifacts
-            if build_result.get('image_tag'):
-                deployment.image_tag = build_result['image_tag']
-
-            if build_result.get('build_log'):
-                # Store build log path for later retrieval
-                log_dir = os.path.join(paths.BUILD_LOG_DIR, str(app_id))
-                log_file = f"build-{deployment.created_at.isoformat().replace(':', '-')}.json"
-                deployment.build_log_path = os.path.join(log_dir, log_file)
-
-            db.session.commit()
-
-            # Step 2: Deploy
-            deployment.status = 'deploying'
-            deployment.deploy_started_at = datetime.utcnow()
-            db.session.commit()
-
-            if log_callback:
-                log_callback("Build successful, starting deployment...")
-
-            deploy_result = cls._deploy_application(app, deployment, log_callback)
-
-            if not deploy_result.get('success'):
-                deployment.status = 'failed'
-                deployment.error_message = deploy_result.get('error', 'Deploy failed')
-                app.status = 'error'
+                deploy_result = cls._deploy_compose(app, deployment, log_callback)
+                deployment.build_completed_at = datetime.utcnow()
+                if not deploy_result.get('success'):
+                    return cls._fail(app, deployment, deploy_result.get('error') or 'Deploy failed')
+            else:
+                # Step 1: Build
+                deployment.status = 'building'
+                deployment.build_started_at = datetime.utcnow()
                 db.session.commit()
-                return {
-                    'success': False,
-                    'error': deployment.error_message,
-                    'deployment': deployment.to_dict()
-                }
+
+                if log_callback:
+                    log_callback(f"Starting build for {app.name}...")
+
+                build_result = BuildService.build(
+                    app_id,
+                    no_cache=no_cache,
+                    log_callback=log_callback
+                )
+
+                deployment.build_completed_at = datetime.utcnow()
+
+                if not build_result.get('success'):
+                    return cls._fail(app, deployment, build_result.get('error', 'Build failed'))
+
+                # Store build artifacts
+                if build_result.get('image_tag'):
+                    deployment.image_tag = build_result['image_tag']
+
+                if build_result.get('build_log'):
+                    # Store build log path for later retrieval
+                    log_dir = os.path.join(paths.BUILD_LOG_DIR, str(app_id))
+                    log_file = f"build-{deployment.created_at.isoformat().replace(':', '-')}.json"
+                    deployment.build_log_path = os.path.join(log_dir, log_file)
+
+                db.session.commit()
+
+                # Step 2: Deploy
+                deployment.status = 'deploying'
+                deployment.deploy_started_at = datetime.utcnow()
+                db.session.commit()
+
+                if log_callback:
+                    log_callback("Build successful, starting deployment...")
+
+                deploy_result = cls._deploy_application(app, deployment, log_callback)
+
+                if not deploy_result.get('success'):
+                    return cls._fail(app, deployment, deploy_result.get('error', 'Deploy failed'))
 
             # Mark previous live deployment as rolled_back
             current = Deployment.get_current(app_id)
@@ -229,6 +233,58 @@ class DeploymentService:
                 'error': str(e),
                 'deployment': deployment.to_dict()
             }
+
+    @classmethod
+    def _fail(cls, app: Application, deployment: Deployment, error: str) -> Dict:
+        deployment.status = 'failed'
+        deployment.error_message = error
+        app.status = 'error'
+        db.session.commit()
+        return {'success': False, 'error': error, 'deployment': deployment.to_dict()}
+
+    @staticmethod
+    def _uses_compose(app: Application) -> bool:
+        """A local app whose runtime is its own compose project."""
+        return bool(app.compose_file and app.root_path and not app.server_id)
+
+    @classmethod
+    def _pull_latest(cls, app: Application, log_callback: Callable[[str], None] = None) -> Dict:
+        """Check out the configured branch's latest commit, if deployed from Git."""
+        deploy_config = GitService.get_app_config(app.id)
+        if not deploy_config:
+            return {'success': True, 'skipped': True}
+        branch = deploy_config.get('branch') or 'main'
+        if log_callback:
+            log_callback(f"Pulling latest changes from {branch}...")
+        return GitService.pull_changes(app.root_path, branch)
+
+    @classmethod
+    def _deploy_compose(cls, app: Application, deployment: Deployment,
+                        log_callback: Callable[[str], None] = None) -> Dict:
+        """Deploy an app that is a compose project (every service it declares).
+
+        The preflight validates the file, builds and pulls every image and
+        checks ports while the current release is still serving; `up -d
+        --build` then recreates only the services whose image or config
+        changed, so an unchanged database keeps running through a deploy.
+        """
+        from app.services import deploy_preflight_service as preflight
+
+        checks = preflight.preflight_compose_project(app.root_path, app.compose_file, log=log_callback)
+        if not checks.ok:
+            # Nothing was stopped: the previous release is still serving.
+            return {'success': False, 'error': checks.error, 'preflight': checks.to_dict()}
+
+        deployment.status = 'deploying'
+        deployment.deploy_started_at = datetime.utcnow()
+        db.session.commit()
+        if log_callback:
+            log_callback(f"Starting compose project {app.compose_file}...")
+        result = DockerService.compose_up(app.root_path, detach=True, build=True,
+                                          compose_file=app.compose_file)
+        if not result.get('success'):
+            return {'success': False, 'error': result.get('error') or 'docker compose up failed'}
+        return {'success': True}
 
     @classmethod
     def _deploy_application(cls, app: Application, deployment: Deployment,

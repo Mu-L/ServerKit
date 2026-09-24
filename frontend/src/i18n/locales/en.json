@@ -5334,6 +5334,9 @@
             "enterYourPassword": "Enter your password",
             "itLooksLikeAnAdminAccount": "It looks like an admin account was created via the CLI. Sign in with those credentials to finish setting up your server.",
             "setUpTheAdministratorAccountFor": "Set up the administrator account for your server.",
+            "setupCode": "Setup code",
+            "setupCodeHint": "Shown at the end of the install. On the server, run: serverkit setup-code",
+            "setupCodePlaceholder": "XXXX-XXXX-XXXX",
             "signIn": "Sign In",
             "thisIsYourFirstTimeUsing": "This is your first time using ServerKit. Create an administrator account to get started. This account will have full access to manage your server."
         },

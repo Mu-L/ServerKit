@@ -11,6 +11,13 @@
 #   BUILD_FROM_SOURCE=1      force a source build even when a release exists
 #   SERVERKIT_SKIP_SSL=1     run on plain HTTP (no HTTPS / no certbot attempt)
 #
+# The first account becomes the administrator, so a fresh panel asks for a
+# one-time setup code (printed at the end; `serverkit setup-code` repeats it).
+# Unattended installs can create the admin instead and skip the code:
+#
+#   SERVERKIT_ADMIN_EMAIL=...     with SERVERKIT_ADMIN_PASSWORD (8+ chars);
+#   SERVERKIT_ADMIN_USERNAME=...  optional, defaults to the email's local part
+#
 # Running your own reverse proxy (Caddy / Traefik / nginx) in front of the panel:
 #
 #   SERVERKIT_EXTERNAL_PROXY=1   your proxy terminates TLS; ours must not
@@ -2585,6 +2592,32 @@ snapshot_existing() {
 # ---------------------------------------------------------------------------
 # Closing summary
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# First administrator
+# ---------------------------------------------------------------------------
+# Until an account exists, whoever registers first owns the panel, so the
+# panel requires a one-time setup code for that registration. Show it to the
+# person running the installer, or skip it entirely when they named the admin.
+claim_first_admin() {
+    SETUP_CODE=""
+    ADMIN_CREATED=""
+    local backend="$INSTALL_DIR/backend" python="$VENV_DIR/bin/python"
+    [ -x "$python" ] || return 0
+    if [ -n "${SERVERKIT_ADMIN_EMAIL:-}" ] && [ -n "${SERVERKIT_ADMIN_PASSWORD:-}" ]; then
+        local username="${SERVERKIT_ADMIN_USERNAME:-${SERVERKIT_ADMIN_EMAIL%%@*}}"
+        if (cd "$backend" && "$python" cli.py create-admin --email "$SERVERKIT_ADMIN_EMAIL" \
+                --username "$username" --password "$SERVERKIT_ADMIN_PASSWORD") >/dev/null 2>&1; then
+            ADMIN_CREATED="$SERVERKIT_ADMIN_EMAIL"
+        else
+            warn "Could not create the admin from SERVERKIT_ADMIN_EMAIL (it may already exist)."
+        fi
+    fi
+    # Last line only: creating the app can log first. Anything that is not a
+    # code means the panel already has an account (an upgrade, or the above).
+    SETUP_CODE=$(cd "$backend" && "$python" cli.py setup-code 2>/dev/null | tail -n 1 \
+        | grep -E '^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$' || true)
+}
+
 print_outro() {
     local ip
     ip=$(curl -sf --max-time 5 https://api.ipify.org 2>/dev/null || \
@@ -2617,7 +2650,15 @@ print_outro() {
         printf '                 certbot, or set SERVERKIT_SKIP_SSL=1 to suppress this warning.\n'
     fi
 
-    printf '\n  %sFirst step%s     create an admin user\n\n' "$BLD" "$RST"
+    if [ -n "${ADMIN_CREATED:-}" ]; then
+        printf '\n  %sAdmin%s          %s (from SERVERKIT_ADMIN_EMAIL) - sign in\n\n' "$BLD" "$RST" "$ADMIN_CREATED"
+    elif [ -n "${SETUP_CODE:-}" ]; then
+        printf '\n  %sSetup code%s     %s%s%s\n' "$BLD" "$RST" "$BLD" "$SETUP_CODE" "$RST"
+        printf '                 The setup page asks for it before creating the admin.\n'
+        printf '                 Show it again: serverkit setup-code\n\n'
+    else
+        printf '\n'
+    fi
 
     printf '  %sCLI%s            serverkit status\n' "$BLD" "$RST"
     printf '                 serverkit create-admin\n'
@@ -2801,6 +2842,7 @@ main() {
     set -e
 
     ping_telemetry
+    claim_first_admin
     print_outro
 }
 

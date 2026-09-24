@@ -20,6 +20,33 @@ release history; historical `agent-v*` tags are not panel releases.
 
 ## [Unreleased]
 
+### Security
+
+- Require a one-time setup code to create the first administrator, so reaching
+  a freshly installed panel first is no longer enough to claim it. The
+  installer prints the code, the panel logs it at startup, and
+  `serverkit setup-code` shows it again; it stops working once the admin exists.
+  Unattended installs can set `SERVERKIT_ADMIN_EMAIL`/`SERVERKIT_ADMIN_PASSWORD`
+  to create the admin directly, and automation can pin `SERVERKIT_SETUP_CODE`.
+
+### Fixed
+
+- Importing a Git repository that has a `docker-compose.yml` now deploys the
+  compose project — every service it declares — instead of building only its
+  Dockerfile, which started the web container without its database.
+- "Deploy latest" on a Docker app from Git now builds the configured branch's
+  latest commit; it rebuilt the checkout already on disk.
+- A push webhook for a Docker app now rebuilds and restarts it; it only pulled
+  the code, so the old containers kept serving.
+- Switching a Git app to another branch works on imported apps (they are
+  cloned single-branch, so the new branch was never fetched).
+- Redeploying a compose app on a host with the legacy `docker-compose` v1 no
+  longer fails the preflight by mistaking the app's own ports for a conflict.
+- An uploaded archive holding a single file (such as a lone
+  `docker-compose.yml`) extracted to an empty directory.
+- `serverkit create-admin`, `reset-password`, `unlock-user`, `make-admin`,
+  `activate-user` and `deactivate-user` ignored their flags and always prompted.
+
 ### Changed
 
 - Let the template catalog certification test point at an external registry

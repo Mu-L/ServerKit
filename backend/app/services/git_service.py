@@ -161,13 +161,18 @@ class GitService:
             return {'success': False, 'error': ref_error}
 
         try:
-            # Fetch first
-            fetch_cmd = git_argv('-C', app_path, 'fetch', '--all')
-            run_checked(fetch_cmd, timeout=60, env=git_env())
-
             # Get current branch if not specified
             if not branch:
                 branch = cls._git_out(app_path, 'rev-parse', '--abbrev-ref', 'HEAD') or 'main'
+
+            # Fetch that branch by explicit refspec: imports clone with
+            # --single-branch, so `fetch --all` never brought in a branch the
+            # app was switched to later, and the reset below failed.
+            fetch_cmd = git_argv('-C', app_path, 'fetch', 'origin',
+                                 f'+refs/heads/{branch}:refs/remotes/origin/{branch}')
+            fetched = run_checked(fetch_cmd, timeout=60, env=git_env())
+            if not fetched['success']:
+                return {'success': False, 'error': fetched['error'] or f'Could not fetch {branch}'}
 
             # Reset to remote branch (force pull)
             reset_cmd = git_argv('-C', app_path, 'reset', '--hard', f'origin/{branch}')
@@ -214,11 +219,30 @@ class GitService:
             return None
 
     @classmethod
-    def deploy(cls, app_id: int, force: bool = False) -> Dict:
+    def deploy(cls, app_id: int, force: bool = False, trigger: str = 'manual') -> Dict:
         """Deploy an application from Git."""
         app_config = cls.get_app_config(app_id)
         if not app_config:
             return {'success': False, 'error': 'Deployment not configured'}
+
+        # A Docker app's code only reaches users once its containers are
+        # rebuilt, so it deploys through the same job as "Deploy latest"
+        # (which pulls the configured branch itself). Pulling alone — what a
+        # push webhook used to do — left the old containers serving.
+        from app.models.application import Application
+        app = Application.query_active().filter_by(id=app_id).first()
+        if app and app.app_type == 'docker':
+            # Pull now as well: a webhook re-reads serverkit.yaml right after
+            # this returns and must see the new commit. The job's own pull is
+            # then a no-op.
+            pulled = cls.pull_changes(app_config['app_path'], app_config.get('branch', 'main'))
+            if not pulled['success']:
+                return {'success': False, 'error': f"Pull failed: {pulled['error']}"}
+            from app.services.deployment_job_service import DeploymentJobService
+            queued = DeploymentJobService.enqueue_app_deploy(app, trigger=trigger)
+            if not queued.get('success'):
+                return {'success': False, 'error': queued.get('error') or 'Failed to queue deployment'}
+            return {'success': True, 'message': 'Deployment queued', 'deploy_job_id': queued.get('job_id')}
 
         app_path = app_config['app_path']
         branch = app_config.get('branch', 'main')
@@ -454,7 +478,7 @@ class GitService:
             pass
 
         # Trigger deployment
-        result = cls.deploy(app_id)
+        result = cls.deploy(app_id, trigger='webhook')
 
         # Push-to-reconfigure: re-read serverkit.yaml at the new commit and
         # reconcile (plan 17 #17). Best-effort — never affects the deploy result.
