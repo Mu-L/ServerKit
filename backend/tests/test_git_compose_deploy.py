@@ -10,6 +10,8 @@ import subprocess
 
 import pytest
 
+from factories import make_application
+
 from app import db
 from app.models.application import Application
 from app.services import deploy_preflight_service as preflight
@@ -77,12 +79,9 @@ def test_a_dockerfile_only_repository_is_unchanged(app, client, auth_headers, mo
 # --- deploy ---------------------------------------------------------------
 
 def _app(compose=True, app_type='docker'):
-    row = Application(name='bench', app_type=app_type, status='running', root_path='/srv/bench', user_id=1,
-                      compose_file='docker-compose.yml' if compose else None,
-                      managed_by='docker_compose' if compose else None)
-    db.session.add(row)
-    db.session.commit()
-    return row
+    return make_application(db, name='bench', app_type=app_type, status='running', root_path='/srv/bench',
+                            docker_image=None, compose_file='docker-compose.yml' if compose else None,
+                            managed_by='docker_compose' if compose else None)
 
 
 @pytest.fixture
