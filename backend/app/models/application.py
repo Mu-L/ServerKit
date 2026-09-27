@@ -111,6 +111,9 @@ class Application(JsonColumnMixin, TimestampMixin, SoftDeleteMixin, db.Model):
     # the site's vhost, with bypasses for auth/admin/cart traffic. NULL/False
     # = off (today's behavior).
     micro_cache_enabled = db.Column(db.Boolean, default=False, nullable=True)
+    # Page-cache TTL in seconds (plan 86 §B3). NULL = the 10s default; the
+    # renderer clamps to NginxService.MICROCACHE_TTL_MAX.
+    micro_cache_ttl = db.Column(db.Integer, nullable=True)
 
     # Environment linking
     environment_type = db.Column(db.String(20), default='standalone')  # 'production', 'development', 'staging', 'standalone'
@@ -229,6 +232,7 @@ class Application(JsonColumnMixin, TimestampMixin, SoftDeleteMixin, db.Model):
             'private_slug': self.private_slug,
             'private_url_enabled': self.private_url_enabled,
             'micro_cache_enabled': bool(self.micro_cache_enabled),
+            'micro_cache_ttl': self.micro_cache_ttl,
             'environment_type': self.environment_type,
             'linked_app_id': self.linked_app_id,
             'shared_config': self._json_read('shared_config', None),

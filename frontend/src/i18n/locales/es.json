@@ -3001,12 +3001,9 @@
             "workers": "Workers"
         },
         "microCachePanel": {
-            "cachesFullPagesInNginxFor": "Almacena páginas completas en la caché de nginx durante 10 segundos, de modo que los picos de tráfico llegan a la caché en lugar de a tu app: una gran mejora y casi gratis para sitios de WordPress y PHP. Es seguro activarla: las peticiones de usuarios con sesión iniciada, los carritos y las pantallas de pago, las páginas de administración y de inicio de sesión, las peticiones que no son GET y las URL con parámetros de consulta siempre omiten la caché y llegan directamente a la app.",
             "clearCache": "Limpiar la caché",
-            "clearCachedPagesForEverySite": "¿Limpiar las páginas en caché de todos los sitios que usan la caché compartida? Las entradas caducan normalmente en 10 segundos.",
             "clearMicroCache": "Limpiar la microcaché",
             "enableMicroCache": "Activar la microcaché",
-            "entriesExpireOnTheirOwnWithin": "Las entradas caducan por sí solas en 10 segundos; usa esto cuando un cambio deba verse de inmediato. La caché es compartida, así que se limpia para todos los sitios que la usan.",
             "failedToClearTheMicroCache": "No se pudo limpiar la microcaché",
             "failedToUpdateMicroCache": "No se pudo actualizar la microcaché",
             "meansThePageCameFromThe": "significa que la página vino de la caché,",
@@ -3019,7 +3016,17 @@
             "thatABypassRuleApplied": "que se aplicó una regla de omisión.",
             "thatItWasFetchedFreshAnd": "que se obtuvo directamente, y",
             "toVerifyItWorksCheckThe": "Para verificar que funciona, revisa la",
-            "xSkCache": "X-SK-Cache"
+            "xSkCache": "X-SK-Cache",
+            "cacheLifetime": "Duración de la caché (segundos)",
+            "cacheLifetimeHint": "Cuánto tiempo se sirve una página desde la caché antes de volver a pedirla a la app (1–{{max}}). Más tiempo significa menos solicitudes a la app, y los cambios tardan más en verse.",
+            "cacheLifetimeSaved": "Duración de la caché guardada.",
+            "cachesFullPagesInNginx": "Guarda páginas completas en nginx durante unos segundos, para que los picos de tráfico lleguen a la caché y no a tu app, y los visitantes sigan viendo la última página buena mientras la app se reinicia o falla. Es seguro activarla: las solicitudes de usuarios con sesión iniciada, carritos y pagos, páginas de administración e inicio de sesión, solicitudes que no son GET y URL con parámetros siempre evitan la caché y llegan directamente a la app.",
+            "clearCachedPagesForThisSite": "¿Borrar las páginas en caché de este sitio? Los demás sitios conservan su caché.",
+            "clearThisSitesEntries": "Las entradas caducan solas tras la duración de la caché; úsalo cuando un cambio deba verse ya. Solo se borran las páginas de este sitio.",
+            "clearing": "Borrando…",
+            "hitRatio": "Tasa de aciertos (24 h)",
+            "hitRatioHint": "Proporción de solicitudes cacheables respondidas desde la caché. Las solicitudes que evitan la caché no cuentan.",
+            "noCachedTrafficYet": "Aún no hay tráfico en caché"
         },
         "migrationHistoryTab": {
             "aDatabaseBackupIsCreatedFirst": "Primero se crea una copia de seguridad de la base de datos y luego el esquema se actualiza de {{value}} a {{value2}}.",

@@ -3001,12 +3001,9 @@
             "workers": "노동자"
         },
         "microCachePanel": {
-            "cachesFullPagesInNginxFor": "nginx에서 10초 동안 전체 페이지를 캐시하므로 트래픽 급증이 앱 대신 캐시에 도달합니다. 이는 WordPress 및 PHP 사이트에 있어 크고 저렴한 승리입니다. 활성화하는 것이 안전합니다. 로그인한 사용자, 장바구니 및 체크아웃, 관리 및 로그인 페이지, GET이 아닌 요청, 쿼리 문자열이 있는 URL의 요청은 항상 캐시를 우회하고 앱에 직접 연결됩니다.",
             "clearCache": "캐시 지우기",
-            "clearCachedPagesForEverySite": "공유 캐시를 사용하여 모든 사이트의 캐시된 페이지를 지우시겠습니까? 항목은 일반적으로 10초 이내에 만료됩니다.",
             "clearMicroCache": "마이크로 캐시 지우기",
             "enableMicroCache": "마이크로 캐시 활성화",
-            "entriesExpireOnTheirOwnWithin": "항목은 10초 이내에 자동으로 만료됩니다. 변경 사항이 즉시 표시되어야 할 때 이것을 사용하십시오. 캐시는 공유되므로 캐시를 사용하는 모든 사이트에서 캐시가 지워집니다.",
             "failedToClearTheMicroCache": "마이크로 캐시를 지우지 못했습니다.",
             "failedToUpdateMicroCache": "마이크로 캐시를 업데이트하지 못했습니다.",
             "meansThePageCameFromThe": "페이지가 캐시에서 왔다는 의미입니다.",

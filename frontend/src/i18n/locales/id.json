@@ -3001,12 +3001,9 @@
             "workers": "Pekerja"
         },
         "microCachePanel": {
-            "cachesFullPagesInNginxFor": "Menyimpan halaman penuh dalam cache di nginx selama 10 detik, sehingga lonjakan lalu lintas akan mengenai cache, bukan aplikasi Anda — sebuah kemenangan besar dan murah untuk situs WordPress dan PHP. Aman untuk diaktifkan: permintaan dari pengguna yang masuk, keranjang dan checkout, halaman admin dan login, permintaan non-GET, dan URL dengan string kueri selalu melewati cache dan menjangkau aplikasi secara langsung.",
             "clearCache": "Hapus cache",
-            "clearCachedPagesForEverySite": "Hapus halaman cache untuk setiap situs menggunakan cache bersama? Entri biasanya kedaluwarsa dalam 10 detik.",
             "clearMicroCache": "Hapus cache mikro",
             "enableMicroCache": "Aktifkan cache mikro",
-            "entriesExpireOnTheirOwnWithin": "Entri kedaluwarsa dengan sendirinya dalam 10 detik; gunakan ini ketika perubahan harus segera terlihat. Cache dibagikan, jadi ini akan menghapusnya untuk setiap situs yang menggunakannya.",
             "failedToClearTheMicroCache": "Gagal menghapus cache mikro",
             "failedToUpdateMicroCache": "Gagal memperbarui cache mikro",
             "meansThePageCameFromThe": "berarti halaman tersebut berasal dari cache,",

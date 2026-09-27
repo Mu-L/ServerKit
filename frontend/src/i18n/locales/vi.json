@@ -3001,12 +3001,9 @@
             "workers": "Công nhân"
         },
         "microCachePanel": {
-            "cachesFullPagesInNginxFor": "Lưu toàn bộ trang vào bộ nhớ đệm trong nginx trong 10 giây, do đó lưu lượng truy cập tăng đột biến sẽ tác động vào bộ nhớ đệm thay vì ứng dụng của bạn — một chiến thắng lớn, rẻ cho các trang web WordPress và PHP. Việc kích hoạt là an toàn: yêu cầu từ người dùng đã đăng nhập, giỏ hàng và thanh toán, trang quản trị và đăng nhập, yêu cầu không GET và URL có chuỗi truy vấn luôn bỏ qua bộ nhớ đệm và truy cập trực tiếp vào ứng dụng.",
             "clearCache": "Xóa bộ nhớ đệm",
-            "clearCachedPagesForEverySite": "Xóa các trang được lưu trong bộ nhớ đệm cho mọi trang web bằng bộ nhớ đệm dùng chung? Các mục thường hết hạn trong vòng 10 giây.",
             "clearMicroCache": "Xóa bộ nhớ đệm vi mô",
             "enableMicroCache": "Kích hoạt bộ nhớ đệm vi mô",
-            "entriesExpireOnTheirOwnWithin": "Các mục sẽ tự hết hạn trong vòng 10 giây; sử dụng điều này khi một thay đổi phải được nhìn thấy ngay lập tức. Bộ nhớ đệm được chia sẻ nên việc này sẽ xóa nó đối với mọi trang web sử dụng nó.",
             "failedToClearTheMicroCache": "Không thể xóa bộ nhớ đệm vi mô",
             "failedToUpdateMicroCache": "Không thể cập nhật bộ đệm vi mô",
             "meansThePageCameFromThe": "có nghĩa là trang đến từ bộ nhớ đệm,",

@@ -1666,6 +1666,16 @@ def set_micro_cache(app_id):
     if 'enabled' not in data:
         return jsonify({'error': "'enabled' is required"}), 400
 
+    from app.services.nginx_service import NginxService
+    if 'ttl' in data:
+        ttl = data['ttl']
+        if ttl is not None and (isinstance(ttl, bool) or not isinstance(ttl, int)
+                                or not 1 <= ttl <= NginxService.MICROCACHE_TTL_MAX):
+            from app.exceptions import ValidationError
+            raise ValidationError("'ttl' must be whole seconds from 1 to "
+                                  f'{NginxService.MICROCACHE_TTL_MAX}')
+        app.micro_cache_ttl = ttl
+
     app.micro_cache_enabled = bool(data['enabled'])
     db.session.commit()
 
@@ -1685,6 +1695,7 @@ def set_micro_cache(app_id):
     response = {
         'message': f"Micro-cache {'enabled' if app.micro_cache_enabled else 'disabled'}",
         'micro_cache_enabled': bool(app.micro_cache_enabled),
+        'micro_cache_ttl': app.micro_cache_ttl,
         'applied': applied,
     }
     if note:
@@ -1697,12 +1708,10 @@ def set_micro_cache(app_id):
 @apps_bp.route('/<int:app_id>/micro-cache/purge', methods=['POST'])
 @jwt_required()
 def purge_micro_cache(app_id):
-    """Manually clear the micro-cache.
+    """Clear this site's cached pages (plan 86 §B3).
 
-    The cache is ONE shared nginx zone for all opted-in sites (zones must be
-    declared statically, so per-site zones don't scale) — purging therefore
-    wipes cached entries for every opted-in site. With the 10-second TTL this
-    is near-harmless, and no nginx reload is needed.
+    The zone is shared, but the cache key carries the host, so only entries
+    for this app's domains are removed. No nginx reload is needed.
     """
     user = get_current_user()
     app = Application.query_active().filter_by(id=app_id).first()
@@ -1711,15 +1720,17 @@ def purge_micro_cache(app_id):
     if not _can_edit_app(user, app):
         return jsonify({'error': 'Access denied'}), 403
 
+    hosts = [d.name for d in app.live_domains if d.name]
+    if not hosts:
+        return jsonify({'message': 'Nothing cached: this service has no domain yet',
+                        'purged': 0}), 200
+
     from app.services.nginx_service import NginxService
-    result = NginxService.purge_micro_cache()
+    result = NginxService.purge_micro_cache(hosts)
     if not result.get('success'):
         return jsonify({'error': result.get('error', 'Purge failed')}), 500
-
-    response = {'message': result.get('message', 'Micro-cache cleared')}
-    if result.get('note'):
-        response['note'] = result['note']
-    return jsonify(response), 200
+    return jsonify({'message': result.get('message', 'Micro-cache cleared'),
+                    'purged': result.get('purged', 0)}), 200
 
 
 @apps_bp.route('/<int:app_id>/scale-policy', methods=['GET'])

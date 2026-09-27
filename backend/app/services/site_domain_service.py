@@ -492,7 +492,8 @@ class SiteDomainService:
         # (app_vhost_kwargs -> render_site_config) always agree on it —
         # an enabled cache must never show up as config drift.
         base = dict(name=app.name, domains=domains, ssl_cert=ssl_cert, ssl_key=ssl_key,
-                    micro_cache=bool(getattr(app, 'micro_cache_enabled', False)))
+                    micro_cache=bool(getattr(app, 'micro_cache_enabled', False)),
+                    micro_cache_ttl=getattr(app, 'micro_cache_ttl', None))
         # Reverse-proxy to a local container/app port.
         if t in ('docker', 'wordpress'):
             if not app.port:

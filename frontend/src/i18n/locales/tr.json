@@ -3001,12 +3001,9 @@
             "workers": "İşçiler"
         },
         "microCachePanel": {
-            "cachesFullPagesInNginxFor": "Tam sayfaları nginx'de 10 saniye boyunca önbelleğe alır, böylece trafikteki ani artışlar uygulamanız yerine önbelleğe çarpar - WordPress ve PHP siteleri için büyük, ucuz bir kazanç. Etkinleştirmek güvenlidir: oturum açmış kullanıcılardan, alışveriş sepetlerinden ve ödemelerden, yönetici ve giriş sayfalarından, GET olmayan isteklerden ve sorgu dizelerine sahip URL'lerden gelen istekler her zaman önbelleği atlar ve uygulamaya doğrudan ulaşır.",
             "clearCache": "Önbelleği temizle",
-            "clearCachedPagesForEverySite": "Paylaşılan önbelleği kullanan her site için önbelleğe alınmış sayfalar temizlensin mi? Girişler normalde 10 saniye içinde sona erer.",
             "clearMicroCache": "Mikro önbelleği temizle",
             "enableMicroCache": "Mikro önbelleği etkinleştir",
-            "entriesExpireOnTheirOwnWithin": "Girişler 10 saniye içinde kendiliğinden sona erer; Bir değişikliğin hemen görünür olması gerektiğinde bunu kullanın. Önbellek paylaşılır, dolayısıyla onu kullanan her site için temizler.",
             "failedToClearTheMicroCache": "Mikro önbellek temizlenemedi",
             "failedToUpdateMicroCache": "Mikro önbellek güncellenemedi",
             "meansThePageCameFromThe": "sayfanın önbellekten geldiği anlamına gelir,",

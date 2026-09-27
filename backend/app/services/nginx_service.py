@@ -416,20 +416,18 @@ log_format serverkit_timed '$remote_addr - $remote_user [$time_local] "$request"
     # Design tradeoff — ONE shared zone/path for every opted-in site: nginx
     # cache zones must be declared statically in the http context, so a zone
     # per site does not scale (and can't be added/removed without touching a
-    # global file per site). Consequence: a manual purge is a full-zone wipe
-    # that clears cached entries for ALL opted-in sites. That is acceptable
-    # because the TTL is only 10 seconds — the purge button exists for the
-    # "I need it gone *now*" case, not for cache hygiene. proxy_* and
-    # fastcgi_* caches cannot share a keys_zone, hence two zones over one
-    # base directory (both wiped together on purge).
+    # global file per site). Purge is still per site: the cache key carries
+    # $host, and purge_micro_cache(hosts) deletes only the files whose KEY
+    # line names that host (plan 86 §B3). proxy_* and fastcgi_* caches cannot
+    # share a keys_zone, hence two zones over one base directory.
     MICROCACHE_CONF_NAME = 'serverkit-microcache.conf'
     MICROCACHE_DIR = '/var/cache/nginx/serverkit-microcache'
 
     MICROCACHE_ZONE_SNIPPET = '''# ServerKit micro-cache zones (auto-generated; do not edit).
 # One shared zone pair serves every site with micro-cache enabled — nginx
 # requires cache zones to be declared statically in the http context, so
-# per-site zones are not practical. Entries expire after 10s; a manual purge
-# wipes the whole directory (all opted-in sites).
+# per-site zones are not practical. Each site sets its own TTL; a purge
+# removes only that site's entries (the cache key carries the host).
 proxy_cache_path /var/cache/nginx/serverkit-microcache/proxy levels=1:2 keys_zone=serverkit_microcache:10m max_size=256m inactive=10m use_temp_path=off;
 fastcgi_cache_path /var/cache/nginx/serverkit-microcache/fastcgi levels=1:2 keys_zone=serverkit_microcache_php:10m max_size=256m inactive=10m use_temp_path=off;
 '''
@@ -446,17 +444,33 @@ fastcgi_cache_path /var/cache/nginx/serverkit-microcache/fastcgi levels=1:2 keys
     if ($request_uri ~* "^/(wp-admin|wp-login|admin|login|cart|checkout|my-account)") { set $sk_skip_cache 1; }
 '''
 
+    # Page-cache behaviour (plan 86 §B3):
+    #   * the key is `$scheme://$host$request_uri`, so the cache files of one
+    #     site can be found by host and purged alone (the proxy default key is
+    #     `$scheme$proxy_host$request_uri` — the upstream port, not the site);
+    #   * a failing or slow upstream serves the last good copy (use_stale), an
+    #     expired entry is refreshed in the background while the stale copy is
+    #     served, and cache_lock sends one request upstream per missing entry
+    #     instead of a stampede. The zone's inactive=10m bounds how long a stale
+    #     copy survives, so the TTL is capped well below it.
+    MICROCACHE_TTL_DEFAULT = 10
+    MICROCACHE_TTL_MAX = 300
+
     MICROCACHE_PROXY_BLOCK = '''        proxy_cache serverkit_microcache;
-        proxy_cache_valid 200 301 10s;
-        proxy_cache_use_stale updating error timeout;
+        proxy_cache_key $scheme://$host$request_uri;
+        proxy_cache_valid 200 301 {ttl}s;
+        proxy_cache_use_stale error timeout updating http_500 http_502 http_503;
+        proxy_cache_background_update on;
         proxy_cache_lock on;
         proxy_no_cache $sk_skip_cache;
         add_header X-SK-Cache $upstream_cache_status;
 '''
 
     MICROCACHE_FASTCGI_BLOCK = '''        fastcgi_cache serverkit_microcache_php;
-        fastcgi_cache_valid 200 301 10s;
-        fastcgi_cache_use_stale updating error timeout;
+        fastcgi_cache_key $scheme://$host$request_uri;
+        fastcgi_cache_valid 200 301 {ttl}s;
+        fastcgi_cache_use_stale error timeout updating http_500 http_503;
+        fastcgi_cache_background_update on;
         fastcgi_cache_lock on;
         fastcgi_cache_bypass $sk_skip_cache;
         fastcgi_no_cache $sk_skip_cache;
@@ -614,6 +628,7 @@ location /p/ {{
                            ssl_cert: str = None, ssl_key: str = None,
                            upstream: str = None,
                            micro_cache: bool = False,
+                           micro_cache_ttl: Optional[int] = None,
                            wordpress_protection: bool = False) -> Dict:
         """Render the vhost config for a site to a string — no side effects.
 
@@ -684,7 +699,7 @@ location /p/ {{
         if micro_cache:
             # Inject before the SSL wrap so the redirect server block (which
             # also carries a server_name line) never receives cache directives.
-            config = cls._with_micro_cache(config, app_type)
+            config = cls._with_micro_cache(config, app_type, micro_cache_ttl)
 
         if wordpress_protection:
             if app_type != 'docker' or not port:
@@ -742,7 +757,8 @@ location /p/ {{
             return {'success': False, 'error': str(e)}
 
     @classmethod
-    def _with_micro_cache(cls, config: str, app_type: str) -> str:
+    def _with_micro_cache(cls, config: str, app_type: str,
+                          ttl: Optional[int] = None) -> str:
         """Inject the shared-zone micro-cache directives into a rendered vhost.
 
         fastcgi_cache for PHP-FPM-served sites, proxy_cache for reverse-proxied
@@ -751,11 +767,13 @@ location /p/ {{
         zones are declared once in conf.d by :meth:`ensure_cache_zone`.
         """
         t = (app_type or '').lower()
+        ttl = cls.clamp_micro_cache_ttl(ttl)
         if t in ('php', 'wordpress'):
             anchor = '        include fastcgi_params;\n'
             if anchor not in config:
                 return config
-            config = config.replace(anchor, anchor + cls.MICROCACHE_FASTCGI_BLOCK, 1)
+            config = config.replace(
+                anchor, anchor + cls.MICROCACHE_FASTCGI_BLOCK.format(ttl=ttl), 1)
         elif t in ('flask', 'django', 'python', 'docker', 'remote'):
             # proxy_cache_bypass may only be declared once per location, so
             # fold $sk_skip_cache into the template's existing $http_upgrade
@@ -766,7 +784,7 @@ location /p/ {{
             config = config.replace(
                 anchor,
                 '        proxy_cache_bypass $sk_skip_cache $http_upgrade;\n'
-                + cls.MICROCACHE_PROXY_BLOCK,
+                + cls.MICROCACHE_PROXY_BLOCK.format(ttl=ttl),
                 1,
             )
         else:
@@ -778,6 +796,14 @@ location /p/ {{
             config = config.replace(
                 match.group(1), match.group(1) + '\n' + cls.MICROCACHE_SKIP_BLOCK, 1)
         return config
+
+    @classmethod
+    def clamp_micro_cache_ttl(cls, ttl) -> int:
+        """A stored TTL as the seconds the vhost uses: unset → the 10s
+        default, anything else clamped to 1..MICROCACHE_TTL_MAX."""
+        if ttl in (None, ''):
+            return cls.MICROCACHE_TTL_DEFAULT
+        return max(1, min(int(ttl), cls.MICROCACHE_TTL_MAX))
 
     @classmethod
     def ensure_cache_zone(cls) -> Dict:
@@ -916,28 +942,56 @@ location /p/ {{
         except Exception as e:  # noqa: BLE001 - best-effort, never blocks a vhost
             return {'success': False, 'error': str(e)}
 
-    @classmethod
-    def purge_micro_cache(cls) -> Dict:
-        """Wipe the shared micro-cache directory contents. Linux-only.
+    # rm argv batch size for a per-site purge (keeps argv far below ARG_MAX).
+    PURGE_BATCH = 200
 
-        Full-zone wipe by design (see the tradeoff note at the MICROCACHE_*
-        constants): the zone is shared across all opted-in sites, and with a
-        10s TTL a per-site purge buys almost nothing. nginx recreates cache
-        entries on demand — no reload needed.
+    @classmethod
+    def purge_micro_cache(cls, hosts: Optional[List[str]] = None) -> Dict:
+        """Clear cached pages. Linux-only; no nginx reload needed.
+
+        With ``hosts`` only that site's entries go (plan 86 §B3). nginx writes
+        each entry's key as a ``KEY: <scheme>://<host><uri>`` header line in
+        the cache file, so a fixed-string grep for ``KEY: http[s]://<host>/``
+        finds exactly this site's files; the trailing ``/`` keeps
+        ``shop.example.com`` from matching ``shop.example.com.evil``. Entries
+        cached under the pre-§B3 key (before the vhost was rewritten) aren't
+        found this way, and expire on their own TTL.
+
+        Without ``hosts`` the whole shared directory is wiped (every site).
         """
         if os.name == 'nt':
             return {'success': False,
                     'error': 'Micro-cache purge is only available on Linux hosts'}
+        subdirs = [os.path.join(cls.MICROCACHE_DIR, d) for d in ('proxy', 'fastcgi')]
         try:
-            subdirs = [os.path.join(cls.MICROCACHE_DIR, d) for d in ('proxy', 'fastcgi')]
-            process = run_privileged(['rm', '-rf'] + subdirs)
-            if process.returncode != 0:
-                return {'success': False, 'error': process.stderr}
-            run_privileged(['mkdir', '-p'] + subdirs)
-            return {'success': True, 'message': 'Micro-cache cleared',
-                    'note': ('The micro-cache is one shared zone, so purging clears '
-                             'cached entries for every site that uses it. Entries '
-                             'expire within 10 seconds regardless.')}
+            if hosts is None:
+                process = run_privileged(['rm', '-rf'] + subdirs)
+                if process.returncode != 0:
+                    return {'success': False, 'error': process.stderr}
+                run_privileged(['mkdir', '-p'] + subdirs)
+                return {'success': True, 'message': 'Micro-cache cleared for every site'}
+
+            hosts = [h.lower() for h in hosts if h]
+            bad = [h for h in hosts if not _validate_domain(h)]
+            if bad or not hosts:
+                return {'success': False,
+                        'error': f"Invalid host: {bad[0] if bad else '(none)'}"}
+            argv = ['grep', '-rlaF']
+            for host in hosts:
+                argv += ['-e', f'KEY: http://{host}/', '-e', f'KEY: https://{host}/']
+            found = run_privileged(argv + subdirs, timeout=60)
+            # grep: 0 = matches, 1 = none; 2 = an error such as a missing
+            # subdir, which only matters if it hid every result.
+            if found.returncode not in (0, 1) and not (found.stdout or '').strip():
+                if 'No such file' not in (found.stderr or ''):
+                    return {'success': False, 'error': (found.stderr or 'grep failed').strip()}
+            files = [f for f in (found.stdout or '').splitlines() if f.strip()]
+            for i in range(0, len(files), cls.PURGE_BATCH):
+                removed = run_privileged(['rm', '-f', '--'] + files[i:i + cls.PURGE_BATCH])
+                if removed.returncode != 0:
+                    return {'success': False, 'error': removed.stderr}
+            return {'success': True, 'purged': len(files),
+                    'message': f'Cleared {len(files)} cached page(s) for this site'}
         except Exception as e:
             return {'success': False, 'error': str(e)}
 
@@ -946,6 +1000,7 @@ location /p/ {{
                     root_path: str = None, port: int = None, php_version: str = '8.2',
                     ssl_cert: str = None, ssl_key: str = None,
                     upstream: str = None, micro_cache: bool = False,
+                    micro_cache_ttl: Optional[int] = None,
                     wordpress_protection: bool = False) -> Dict:
         """Create a new site configuration.
 
@@ -959,6 +1014,7 @@ location /p/ {{
             name, app_type, domains, root_path=root_path, port=port,
             php_version=php_version, ssl_cert=ssl_cert, ssl_key=ssl_key,
             upstream=upstream, micro_cache=micro_cache,
+            micro_cache_ttl=micro_cache_ttl,
             wordpress_protection=wordpress_protection,
         )
         if not rendered.get('success'):

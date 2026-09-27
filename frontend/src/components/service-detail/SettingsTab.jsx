@@ -337,8 +337,9 @@ const SettingsTab = ({ app, deployConfig, domains, primaryDomain, onUpdate }) =>
                     </div>
                 )}
 
-                {/* Cache — opt-in nginx micro-cache (task #21): 10s page cache
-                    with auth/admin/cart bypasses and a manual purge. */}
+                {/* Cache — opt-in nginx micro-cache (task #21, plan 86 §B3):
+                    short-TTL page cache with auth/admin/cart bypasses, stale
+                    serving, and a per-site purge. */}
                 {section === 'cache' && (
                     <div className="svc-settings__section">
                         <h3 className="svc-settings__section-title">{t('app.settingsTab.cache', 'Cache')}</h3>

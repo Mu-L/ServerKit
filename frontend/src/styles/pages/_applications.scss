@@ -1708,3 +1708,19 @@
         color: var(--text-dim);
     }
 }
+
+// Micro-cache panel (plan 86 §B3): TTL input + save, hit-ratio readout.
+.micro-cache {
+    &__ttl {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+
+        input { width: 96px; }
+    }
+
+    &__ratio {
+        font-family: var(--mono);
+        color: var(--text);
+    }
+}

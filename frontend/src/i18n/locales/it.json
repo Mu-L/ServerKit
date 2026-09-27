@@ -3001,12 +3001,9 @@
             "workers": "Lavoratori"
         },
         "microCachePanel": {
-            "cachesFullPagesInNginxFor": "Memorizza nella cache pagine intere in nginx per 10 secondi, in modo che i picchi di traffico colpiscano la cache anziché la tua app: una grande ed economica vittoria per i siti WordPress e PHP. È sicuro abilitare: richieste da utenti che hanno effettuato l'accesso, carrelli e casse, pagine di amministrazione e accesso, richieste non GET e URL con stringhe di query ignorano sempre la cache e raggiungono direttamente l'app.",
             "clearCache": "Svuota cache",
-            "clearCachedPagesForEverySite": "Cancellare le pagine memorizzate nella cache per ogni sito utilizzando la cache condivisa? Le voci normalmente scadono entro 10 secondi.",
             "clearMicroCache": "Cancella la microcache",
             "enableMicroCache": "Abilita la microcache",
-            "entriesExpireOnTheirOwnWithin": "Le voci scadono da sole entro 10 secondi; utilizzare questo quando una modifica deve essere immediatamente visibile. La cache è condivisa, quindi la cancella per ogni sito che la utilizza.",
             "failedToClearTheMicroCache": "Impossibile cancellare la micro-cache",
             "failedToUpdateMicroCache": "Impossibile aggiornare la micro-cache",
             "meansThePageCameFromThe": "significa che la pagina proviene dalla cache,",

@@ -3193,12 +3193,9 @@
             "workers": "工作程序"
         },
         "microCachePanel": {
-            "cachesFullPagesInNginxFor": "nginx 會將完整頁面快取 10 秒，讓流量高峰優先由快取處理，減輕 WordPress 和 PHP 網站的負擔，且幾乎不增加成本。登入使用者的請求、購物車與結帳頁面、管理與登入頁面、非 GET 請求，以及含查詢字串的網址，都會略過快取並直接送往應用程式。",
             "clearCache": "清除快取",
-            "clearCachedPagesForEverySite": "使用共享快取清除每個網站的快取頁面？條目通常會在 10 秒內過期。",
             "clearMicroCache": "清除微快取",
             "enableMicroCache": "啟用微快取",
-            "entriesExpireOnTheirOwnWithin": "條目會在 10 秒內自行過期；當變更必須立即可見時使用此選項。快取是共享的，因此這會清除每個使用它的網站。",
             "failedToClearTheMicroCache": "無法清除微快取",
             "failedToUpdateMicroCache": "微快取更新失敗",
             "meansThePageCameFromThe": "表示此頁面來自快取，",

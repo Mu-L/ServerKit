@@ -134,8 +134,10 @@ export async function updateAppResources(id, data) {
 }
 
 // Per-site nginx micro-cache (short-TTL page cache with auth/admin/cart bypasses).
-export async function setMicroCache(id, enabled) {
-    return this.request(`/apps/${id}/micro-cache`, { method: 'PUT', body: { enabled } });
+// ttl: whole seconds (1-300), null for the 10s default, undefined to leave as is.
+export async function setMicroCache(id, enabled, ttl) {
+    const body = ttl === undefined ? { enabled } : { enabled, ttl };
+    return this.request(`/apps/${id}/micro-cache`, { method: 'PUT', body });
 }
 
 export async function purgeMicroCache(id) {

@@ -3001,12 +3001,9 @@
             "workers": "Pracownicy"
         },
         "microCachePanel": {
-            "cachesFullPagesInNginxFor": "Buforuje całe strony w nginx przez 10 sekund, więc skoki ruchu trafiają do pamięci podręcznej zamiast do Twojej aplikacji — duża i tania korzyść dla witryn WordPress i PHP. Bezpieczne jest włączenie: żądania od zalogowanych użytkowników, koszyków i kas, stron administratora i logowania, żądania inne niż GET i URL z ciągami zapytań zawsze omijają pamięć podręczną i docierają bezpośrednio do aplikacji.",
             "clearCache": "Wyczyść pamięć podręczną",
-            "clearCachedPagesForEverySite": "Wyczyścić strony z pamięci podręcznej dla każdej witryny przy użyciu udostępnionej pamięci podręcznej? Wpisy zwykle wygasają w ciągu 10 sekund.",
             "clearMicroCache": "Wyczyść mikro-cache",
             "enableMicroCache": "Włącz mikro-cache",
-            "entriesExpireOnTheirOwnWithin": "Wpisy wygasają samoistnie w ciągu 10 sekund; użyj tego, gdy zmiana musi być widoczna natychmiast. Pamięć podręczna jest współdzielona, więc zostanie ona wyczyszczona dla każdej witryny, która z niej korzysta.",
             "failedToClearTheMicroCache": "Nie udało się wyczyścić mikro-pamięci podręcznej",
             "failedToUpdateMicroCache": "Nie udało się zaktualizować mikro-cache",
             "meansThePageCameFromThe": "oznacza, że strona pochodzi z pamięci podręcznej,",

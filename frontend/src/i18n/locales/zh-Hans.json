@@ -3001,12 +3001,9 @@
             "workers": "工作进程"
         },
         "microCachePanel": {
-            "cachesFullPagesInNginxFor": "在 nginx 中缓存完整页面 10 秒，因此流量峰值会影响缓存而不是您的应用程序 — 这对于 WordPress 和 PHP 网站来说是一个巨大而廉价的胜利。启用是安全的：来自登录用户、购物车和结帐、管理和登录页面、非 GET 请求以及带有查询字符串的 URL 的请求始终绕过缓存并直接到达应用程序。",
             "clearCache": "清除缓存",
-            "clearCachedPagesForEverySite": "使用共享缓存清除每个站点的缓存页面？条目通常会在 10 秒内过期。",
             "clearMicroCache": "清除微缓存",
             "enableMicroCache": "启用微缓存",
-            "entriesExpireOnTheirOwnWithin": "条目会在 10 秒内自行过期；当更改必须立即可见时使用此选项。缓存是共享的，因此这会清除每个使用它的站点。",
             "failedToClearTheMicroCache": "无法清除微缓存",
             "failedToUpdateMicroCache": "微缓存更新失败",
             "meansThePageCameFromThe": "表示该页面来自缓存，",

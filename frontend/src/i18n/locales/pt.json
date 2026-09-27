@@ -3001,12 +3001,9 @@
             "workers": "Trabalhadores"
         },
         "microCachePanel": {
-            "cachesFullPagesInNginxFor": "Armazena páginas inteiras em cache no nginx por 10 segundos, para que os picos de tráfego atinjam o cache em vez de seu aplicativo – uma vitória grande e barata para sites WordPress e PHP. É seguro habilitar: solicitações de usuários logados, carrinhos e checkouts, páginas de administração e login, solicitações não GET e URLs com strings de consulta sempre ignoram o cache e chegam diretamente ao aplicativo.",
             "clearCache": "Limpar cache",
-            "clearCachedPagesForEverySite": "Limpar páginas em cache de todos os sites usando o cache compartilhado? As inscrições normalmente expiram em 10 segundos.",
             "clearMicroCache": "Limpar micro-cache",
             "enableMicroCache": "Habilitar micro-cache",
-            "entriesExpireOnTheirOwnWithin": "As inscrições expiram sozinhas em 10 segundos; use isto quando uma alteração precisar ser visível imediatamente. O cache é compartilhado, portanto, ele é limpo para todos os sites que o utilizam.",
             "failedToClearTheMicroCache": "Falha ao limpar o microcache",
             "failedToUpdateMicroCache": "Falha ao atualizar o microcache",
             "meansThePageCameFromThe": "significa que a página veio do cache,",
