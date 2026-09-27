@@ -22,15 +22,8 @@ def _count(table, where='1=1', **params):
 
 
 def _app_id(name):
-    user_id = _sql('SELECT id FROM users ORDER BY id LIMIT 1').scalar()
-    if user_id is None:
-        _sql("INSERT INTO users (email, username) VALUES ('r@x.test', 'retention')")
-        user_id = _sql('SELECT id FROM users ORDER BY id LIMIT 1').scalar()
-    from app.models import Application
-    application = Application(name=name, app_type='docker', user_id=user_id)
-    db.session.add(application)
-    db.session.commit()
-    return application.id
+    from tests.factories import make_application
+    return make_application(db, name=name).id
 
 
 def test_every_spec_runs_against_the_real_schema(app):

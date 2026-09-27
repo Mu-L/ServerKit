@@ -673,6 +673,7 @@ Regenerate (backend/):
 - `GET /system/processes`
 - `GET /system/resource-tier`
 - `GET /system/services`
+- `GET /system/storage`
 - `GET /system/time`
 - `GET /system/timezones`
 - `GET /system/update`
