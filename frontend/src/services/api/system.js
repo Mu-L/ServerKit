@@ -98,6 +98,12 @@ export async function getSystemInfo() {
     return this.request('/system/info');
 }
 
+// Where the panel host's disk goes, plus the retention settings that bound
+// ServerKit's own share (admin, read-only).
+export async function getStorageOverview() {
+    return this.request('/system/storage');
+}
+
 export async function getServerTime() {
     return this.request('/system/time');
 }

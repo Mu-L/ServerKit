@@ -191,7 +191,7 @@ class TestBuiltins:
         # Fleet alert thresholds. The evaluation existed and had no caller, so
         # thresholds set on the Fleet page were never checked against anything.
         assert 'builtin.fleet_thresholds' in kinds
-        assert len([k for k in kinds if k.startswith('builtin.')]) == 17
+        assert len([k for k in kinds if k.startswith('builtin.')]) == 18
 
         builtin_handlers.seed_builtin_schedules()
         # 17 builtin.* schedules (incl. restore-point/job/telemetry retention,
@@ -199,10 +199,10 @@ class TestBuiltins:
         # fleet threshold check) + login-link/SSO reapers + drift/FIM/bandwidth
         # sweeps + the host doctor sweep AND the fleet doctor sweep (plan 26)
         # + the setup-health nag (plan 22).
-        assert ScheduledJob.query.count() == 25
+        assert ScheduledJob.query.count() == 26
         # Seeding twice doesn't duplicate.
         builtin_handlers.seed_builtin_schedules()
-        assert ScheduledJob.query.count() == 25
+        assert ScheduledJob.query.count() == 26
 
 
 class TestApi:
@@ -321,6 +321,81 @@ class TestJobRetention:
         assert ids['old_ok'] not in survivors
         assert ids['old_cancel'] not in survivors
         assert ids['ancient_failed'] not in survivors
+
+    def test_prune_deletes_the_jobs_log_lines_and_old_orphans(self, app):
+        # A pruned job's run log lines used to stay behind forever: a 25 GB
+        # box carried 540k orphaned rows (~160 MB with the index).
+        from datetime import datetime, timedelta
+        from app.models.run_log import RunLogEntry
+
+        now = datetime.utcnow()
+        old = Job(kind='t.ok', status=Job.STATUS_SUCCEEDED,
+                  completed_at=now - timedelta(days=30), created_at=now - timedelta(days=30))
+        fresh = Job(kind='t.ok', status=Job.STATUS_SUCCEEDED,
+                    completed_at=now - timedelta(days=1), created_at=now - timedelta(days=1))
+        db.session.add_all([old, fresh])
+        db.session.commit()
+        old_id, fresh_id = old.id, fresh.id
+
+        def _line(run_id, days, kind='job'):
+            db.session.add(RunLogEntry(run_kind=kind, run_id=run_id, message='x',
+                                       created_at=now - timedelta(days=days)))
+        _line(old_id, 30)
+        _line(fresh_id, 1)
+        _line('gone-long-ago', 40)            # orphan from an earlier prune
+        _line('not-committed-yet', 0)         # too new to call an orphan
+        _line('gone-long-ago', 40, kind='sandbox')  # another kind's lines
+        db.session.commit()
+
+        JobService.prune_terminal(retention_days=14)
+
+        left = {(r.run_kind, r.run_id) for r in RunLogEntry.query.all()}
+        assert left == {('job', fresh_id), ('job', 'not-committed-yet'),
+                        ('sandbox', 'gone-long-ago')}
+
+    def test_successful_builtin_ticks_are_kept_a_day(self, app):
+        # ~12k scheduler ticks a day each wrote a job, a queue message, log
+        # lines and an event, kept 14-30 days: ~500 MB on one box.
+        from datetime import datetime, timedelta
+
+        now = datetime.utcnow()
+
+        def _job(kind, status, hours, scheduled=True):
+            j = Job(kind=kind, status=status, scheduled_job_id=1 if scheduled else None,
+                    completed_at=now - timedelta(hours=hours),
+                    created_at=now - timedelta(hours=hours))
+            db.session.add(j)
+            return j
+
+        old_tick = _job('builtin.monitor_check', Job.STATUS_SUCCEEDED, 30)
+        fresh_tick = _job('builtin.monitor_check', Job.STATUS_SUCCEEDED, 2)
+        failed_tick = _job('builtin.monitor_check', Job.STATUS_FAILED, 30)
+        policy_run = _job('backup.policy.run', Job.STATUS_SUCCEEDED, 30)   # real work
+        manual_builtin = _job('builtin.health_check', Job.STATUS_SUCCEEDED, 30, scheduled=False)
+        db.session.commit()
+        ids = {n: j.id for n, j in {'old_tick': old_tick, 'fresh_tick': fresh_tick,
+                                    'failed_tick': failed_tick, 'policy_run': policy_run,
+                                    'manual_builtin': manual_builtin}.items()}
+
+        JobService.prune_terminal(retention_days=14)
+
+        survivors = {j.id for j in Job.query.all()}
+        assert ids['old_tick'] not in survivors
+        assert {ids['fresh_tick'], ids['failed_tick'], ids['policy_run'],
+                ids['manual_builtin']} <= survivors
+
+    def test_a_successful_tick_writes_no_system_event(self, app, monkeypatch):
+        emitted = []
+        monkeypatch.setattr(JobConsumer, '_emit',
+                            staticmethod(lambda job, event_type: emitted.append((job.kind, event_type))))
+        registry.register('builtin.t_tick', lambda job: {'ok': True})
+        registry.register('t.work', lambda job: {'ok': True})
+        for kind, scheduled in (('builtin.t_tick', 1), ('t.work', None)):
+            job = JobService.enqueue(kind)
+            job.scheduled_job_id = scheduled
+            db.session.commit()
+            _drain_once()
+        assert emitted == [('t.work', 'job.succeeded')]
 
     def test_retention_handler_respects_zero_disable(self, app, monkeypatch):
         from app.jobs import builtin_handlers

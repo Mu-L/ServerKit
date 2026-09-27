@@ -645,6 +645,60 @@ else
 fi
 
 # --------------------------------------------------------------------------
+# T10i — plan 85 B3: with SERVERKIT_BACKUP_RETENTION unset, a filesystem under
+# 50 GiB keeps ONE upgrade snapshot (each is a full DB copy), a larger one
+# keeps 3, and an unreadable size keeps the old default of 3.
+# --------------------------------------------------------------------------
+t="$WORK/t10i"; mkdir -p "$t/bin" "$t/backups"
+_keep_with_df() {  # $1 = total KiB df reports ('' = df fails)
+    if [ -n "$1" ]; then
+        printf '#!/usr/bin/env bash\necho "Filesystem 1024-blocks Used Available Capacity Mounted"\necho "/dev/vda1 %s 1 1 1%% /"\n' "$1" > "$t/bin/df"
+    else
+        printf '#!/usr/bin/env bash\nexit 1\n' > "$t/bin/df"
+    fi
+    chmod +x "$t/bin/df"
+    ( set -Eeuo pipefail; export PATH="$t/bin:$PATH"; BACKUP_DIR="$t/backups"; default_backup_keep )
+}
+k_small="$(_keep_with_df 26214400)"     # 25 GiB
+k_large="$(_keep_with_df 524288000)"    # 500 GiB
+k_unknown="$(_keep_with_df '')"
+if [ "$k_small" = 1 ] && [ "$k_large" = 3 ] && [ "$k_unknown" = 3 ]; then
+    ok "default_backup_keep: 1 snapshot under 50 GiB, 3 above or when unknown"
+else
+    bad "default_backup_keep: small=$k_small large=$k_large unknown=$k_unknown (want 1/3/3)"
+fi
+
+# --------------------------------------------------------------------------
+# T10j — plan 85 B2: on a blue/green install the active slot stays on disk as
+# the rollback, so backup_current must not write a serverkit-tree-* copy of
+# it (a second full copy of the same code per update). A plain-directory
+# install still gets its tree backup.
+# --------------------------------------------------------------------------
+t="$WORK/t10j"
+_tree_backups_after_backup_current() {  # $1 = bluegreen|plain
+    rm -rf "$t"; mkdir -p "$t/opt/serverkit-a/backend" "$t/backups"
+    if [ "$1" = bluegreen ]; then
+        ln -s "$t/opt/serverkit-a" "$t/opt/serverkit"
+    else
+        mv "$t/opt/serverkit-a" "$t/opt/serverkit"
+    fi
+    (
+        set -Eeuo pipefail
+        DRY_RUN=0; INSTALL_DIR="$t/opt/serverkit"; BACKUP_DIR="$t/backups"
+        SERVERKIT_BACKUP_RETENTION=3
+        backup_current
+    ) >/dev/null 2>&1 || true
+    find "$t/backups" -mindepth 1 -maxdepth 1 -name 'serverkit-tree-*' | wc -l
+}
+trees_bg="$(_tree_backups_after_backup_current bluegreen)"
+trees_plain="$(_tree_backups_after_backup_current plain)"
+if [ "$trees_bg" -eq 0 ] && [ "$trees_plain" -eq 1 ]; then
+    ok "backup_current skips the tree copy on blue/green, keeps it for a plain install"
+else
+    bad "tree backups: bluegreen=$trees_bg plain=$trees_plain (want 0/1)"
+fi
+
+# --------------------------------------------------------------------------
 # T11 — zero-downtime regression: reload_nginx_graceful must RELOAD a running
 # nginx and must NEVER stop it. Host nginx fronts every managed app, so a stop
 # during a panel update used to black out unrelated sites. A recording systemctl
@@ -971,6 +1025,73 @@ EOF
         ok "download_release (offline tarball) returns exactly the tarball path"
     else
         bad "download_release (offline) returned [$out2], expected [$off]"
+    fi
+fi
+
+# --------------------------------------------------------------------------
+# T20b — deploy_release removes its download and unpack dirs. It used to leave
+# the ~70 MB tarball's mktemp dir behind on every update (a 25 GB box had 11
+# of them, 644 MB), and a failed download stranded its dir as well. An
+# operator's offline tarball must survive; stale leftovers are swept.
+# --------------------------------------------------------------------------
+t="$WORK/t20b"; mkdir -p "$t/bin" "$t/tmp" "$t/src/serverkit/scripts" "$t/live" "$t/slot"
+if [ -z "$tarch" ] || ! command -v sha256sum >/dev/null 2>&1 || ! command -v tar >/dev/null 2>&1; then
+    skip "deploy_release scratch cleanup — needs sha256sum, tar + a known arch (runs on Linux CI)"
+else
+    printf '#!/bin/sh\n' > "$t/src/serverkit/serverkit"
+    tar czf "$t/release.tar.gz" -C "$t/src" serverkit
+    sha="$(sha256sum "$t/release.tar.gz" | cut -d' ' -f1)"
+    printf '%s  serverkit-v9.9.9-linux-%s.tar.gz\n' "$sha" "$tarch" > "$t/checksums.txt"
+    cat > "$t/bin/curl" <<EOF
+#!/usr/bin/env bash
+out=""; url=""
+while [ \$# -gt 0 ]; do
+    case "\$1" in -o) out="\$2"; shift 2 ;; -*) shift ;; *) url="\$1"; shift ;; esac
+done
+[ -n "\${T20B_CURL_FAIL:-}" ] && exit 22
+case "\$url" in
+    *checksums.txt) cp "$t/checksums.txt" "\$out" ;;
+    *)              cp "$t/release.tar.gz" "\$out" ;;
+esac
+EOF
+    chmod +x "$t/bin/curl"
+    # A leftover from an older updater (swept) and a fresh one (kept: it could
+    # be a concurrent download).
+    mkdir -p "$t/tmp/tmp.OLDLEFTOVER" "$t/tmp/tmp.FRESHDL"
+    : > "$t/tmp/tmp.OLDLEFTOVER/serverkit-v1.0.0-linux-amd64.tar.gz"
+    : > "$t/tmp/tmp.FRESHDL/serverkit-v1.0.1-linux-amd64.tar.gz"
+    touch -d '2 hours ago' "$t/tmp/tmp.OLDLEFTOVER/serverkit-v1.0.0-linux-amd64.tar.gz"
+
+    _t20b_deploy() {
+        (
+            set -Eeuo pipefail
+            export PATH="$t/bin:$PATH" TMPDIR="$t/tmp"
+            DRY_RUN=0; INSTALL_DIR="$t/live"; SERVERKIT_MIRROR_URL="http://mirror.invalid"
+            SERVERKIT_OFFLINE_TARBALL="${1:-}"
+            preserve_installed_plugins() { :; }
+            trap cleanup_on_exit EXIT
+            deploy_release "$t/slot/target" v9.9.9
+        ) >/dev/null 2>&1
+    }
+    _t20b_scratch() { find "$t/tmp" -mindepth 1 -maxdepth 1 ! -name tmp.FRESHDL | wc -l; }
+
+    if _t20b_deploy && [ -x "$t/slot/target/serverkit" ] && [ "$(_t20b_scratch)" -eq 0 ] \
+       && [ -d "$t/tmp/tmp.FRESHDL" ]; then
+        ok "deploy_release leaves no download/unpack dir behind and sweeps stale ones"
+    else
+        bad "deploy_release left scratch in TMPDIR: [$(ls "$t/tmp" | tr '\n' ' ')]"
+    fi
+
+    if _t20b_deploy "$t/release.tar.gz" && [ -f "$t/release.tar.gz" ] && [ "$(_t20b_scratch)" -eq 0 ]; then
+        ok "deploy_release keeps an operator's offline tarball"
+    else
+        bad "deploy_release deleted the offline tarball or left scratch: [$(ls "$t/tmp" | tr '\n' ' ')]"
+    fi
+
+    if ! T20B_CURL_FAIL=1 _t20b_deploy && [ "$(_t20b_scratch)" -eq 0 ]; then
+        ok "a failed download leaves no dir behind"
+    else
+        bad "a failed download stranded its dir: [$(ls "$t/tmp" | tr '\n' ' ')]"
     fi
 fi
 

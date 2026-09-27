@@ -848,13 +848,21 @@ download_release() {
     tmp_dir="$(mktemp -d)"
     output="$tmp_dir/serverkit-${version}-linux-${arch}.tar.gz"
 
+    # This runs in a command substitution, so the caller never learns tmp_dir
+    # on failure: remove it here before halting, or every failed download
+    # strands a directory in /tmp.
     step "Downloading release tarball (${arch})..." >&2
-    curl -sfL "$tarball_url" -o "$output" || halt "Failed to download $tarball_url"
+    if ! curl -sfL "$tarball_url" -o "$output"; then
+        rm -rf "$tmp_dir"
+        halt "Failed to download $tarball_url"
+    fi
 
     step "Verifying checksum..." >&2
     if curl -sfL "$checksum_url" -o "$tmp_dir/checksums.txt"; then
         cd "$tmp_dir"
         if ! sha256sum -c <(grep "serverkit-${version}-linux-${arch}.tar.gz" checksums.txt) >/dev/null 2>&1; then
+            cd /
+            rm -rf "$tmp_dir"
             halt "Checksum verification failed for release tarball."
         fi
         good "Checksum verified" >&2
@@ -863,6 +871,20 @@ download_release() {
     fi
 
     echo "$output"
+}
+
+# Remove release downloads that earlier updates left in the temp dir (before
+# the download dir was cleaned up, every update stranded ~70 MB there). Only
+# directories holding a release tarball and untouched for an hour are taken,
+# so a concurrent download is never pulled out from under itself.
+sweep_stale_downloads() {
+    local tarball
+    while IFS= read -r tarball; do
+        [ -n "$tarball" ] || continue
+        rm -rf "$(dirname "$tarball")" 2>/dev/null || true
+    done < <(find "${TMPDIR:-/tmp}" -mindepth 2 -maxdepth 2 -path '*/tmp.*/serverkit-*-linux-*.tar.gz' \
+                 -mmin +60 2>/dev/null || true)
+    return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -1091,7 +1113,12 @@ backup_current() {
 
     local tree_backup
     tree_backup="$BACKUP_DIR/serverkit-tree-$(date +%Y%m%d-%H%M%S)"
-    if [ -d "$active" ]; then
+    if [ -L "$INSTALL_DIR" ] && [ -d "$active" ]; then
+        # Blue/green: the update installs into the OTHER slot, so this one
+        # stays on disk as the rollback. A tree copy of it was a second full
+        # copy of the same code (~1 GB per update on a small VPS).
+        info "Install tree kept in place as the rollback slot: $active"
+    elif [ -d "$active" ]; then
         # The SQLite database is NOT part of the tree snapshot: it was just
         # written as the pre-upgrade copy above, and rollback restores from
         # that copy, never from the tree. Copying it here too doubled every
@@ -1323,14 +1350,23 @@ deploy_release() {
     phase "Downloading Release"
 
     local tarball stage unpacked
+    sweep_stale_downloads
     tarball="$(download_release "$version")"
+    # The download dir is ours to remove; an operator's offline tarball is not.
+    # Both scratch dirs are recorded globally so cleanup_on_exit removes them
+    # when a halt below aborts the update.
+    if [ "$tarball" != "${SERVERKIT_OFFLINE_TARBALL:-}" ]; then
+        RELEASE_DOWNLOAD_DIR="$(dirname "$tarball")"
+    fi
 
     if [ "$DRY_RUN" = "1" ]; then
         info "[dry-run] would unpack $tarball into $target"
+        remove_release_scratch
         return 0
     fi
 
     stage="$(mktemp -d)"
+    RELEASE_STAGE_DIR="$stage"
     tar xzf "$tarball" -C "$stage"
 
     unpacked="$stage/serverkit"
@@ -1355,7 +1391,7 @@ deploy_release() {
 
     rm -rf "$target"
     cp -a "$unpacked" "$target"
-    rm -rf "$stage"
+    remove_release_scratch
 
     chmod +x "$target/serverkit"
     chmod +x "$target/scripts/"*.sh 2>/dev/null || true
@@ -1564,11 +1600,26 @@ rollback() {
     fi
 }
 
+# Remove deploy_release's download and unpack dirs. Warn-and-continue: a
+# scratch dir that will not delete must never fail an update or its rollback.
+remove_release_scratch() {
+    if [ -n "${RELEASE_DOWNLOAD_DIR:-}" ]; then
+        rm -rf "$RELEASE_DOWNLOAD_DIR" 2>/dev/null || true
+        RELEASE_DOWNLOAD_DIR=""
+    fi
+    if [ -n "${RELEASE_STAGE_DIR:-}" ]; then
+        rm -rf "$RELEASE_STAGE_DIR" 2>/dev/null || true
+        RELEASE_STAGE_DIR=""
+    fi
+    return 0
+}
+
 # If the update fails after we have switched the symlink, roll back to the
 # previous slot automatically. Registered as the EXIT trap by the run block
 # below; defined here (above the source guard) so it stays unit-testable.
 cleanup_on_exit() {
     local rc=$?
+    remove_release_scratch
     [ "$rc" -eq 0 ] && return 0
     if [ "$DRY_RUN" = "0" ] && [ -n "${PREVIOUS_DIR:-}" ] && \
        [ "${ROLLING_BACK:-0}" != "1" ] && [ "${HEALTH_PASSED:-0}" != "1" ]; then
@@ -1638,9 +1689,26 @@ backups_size_kb() {
     du -sk "$BACKUP_DIR" 2>/dev/null | awk '{print $1}' || echo 0
 }
 
+# How many upgrade snapshots to keep when SERVERKIT_BACKUP_RETENTION is unset:
+# 1 on a filesystem under 50 GiB, else 3. Each snapshot is a full database
+# copy, and on a 25 GB VPS three of them compete with the apps for the disk.
+# An unreadable size keeps the old default.
+default_backup_keep() {
+    local total_kb
+    total_kb="$(df -Pk "$BACKUP_DIR" 2>/dev/null | awk 'NR==2 {print $2}' || true)"
+    if [ -z "$total_kb" ]; then
+        total_kb="$(df -Pk / 2>/dev/null | awk 'NR==2 {print $2}' || true)"
+    fi
+    if [ -n "$total_kb" ] && [ "$total_kb" -lt $((50 * 1024 * 1024)) ] 2>/dev/null; then
+        echo 1
+    else
+        echo 3
+    fi
+}
+
 # Trim every backup kind to the retention cap. Safe to call repeatedly.
 trim_backups() {
-    local keep="${1:-${SERVERKIT_BACKUP_RETENTION:-3}}"
+    local keep="${1:-${SERVERKIT_BACKUP_RETENTION:-$(default_backup_keep)}}"
     prune_old_backups 'serverkit-tree-*'             "$keep"
     prune_old_backups 'serverkit-pre-upgrade-*.db'   "$keep"
     prune_old_backups 'serverkit-pre-upgrade-*.dump' "$keep"

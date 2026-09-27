@@ -32,6 +32,17 @@ class Job(db.Model):
 
     TERMINAL_STATUSES = (STATUS_SUCCEEDED, STATUS_FAILED, STATUS_CANCELLED)
 
+    # The panel's own scheduled checks (monitor, backup scheduler, sync…) fire
+    # every minute or so, ~12k runs a day on one box. A successful one records
+    # "checked"; it is kept a day, not the full job retention.
+    BUILTIN_KIND_PREFIX = 'builtin.'
+    TICK_RETENTION_HOURS = 24
+
+    @property
+    def is_builtin_tick(self):
+        return (self.scheduled_job_id is not None
+                and (self.kind or '').startswith(self.BUILTIN_KIND_PREFIX))
+
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     kind = db.Column(db.String(80), nullable=False, index=True)
     status = db.Column(db.String(20), default=STATUS_PENDING, nullable=False, index=True)

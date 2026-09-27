@@ -12,6 +12,7 @@ behavior — cadence handling, per-task de-dup, idempotency — is unchanged; on
 the trigger moved from a bare thread to the unified job system.
 """
 import logging
+import os
 
 from app.jobs.registry import register
 
@@ -358,19 +359,42 @@ def run_telemetry_retention():
         days = int(days)
     except (TypeError, ValueError):
         days = 30
-    if days <= 0:
-        return None
-    # No VACUUM here: it needs an exclusive lock and free space equal to the
-    # database. Steady-state pruning keeps the freed pages on the freelist for
-    # reuse, so the file stops growing without ever blocking the panel. Use
-    # `serverkit disk` to actually shrink the file after a big backlog.
-    report = disk_reclaim_service.prune_telemetry(days=days, vacuum=False)
-    deleted = report.get('deleted_rows') or 0
-    if deleted:
-        logger.info('Telemetry retention pruned %s row(s): %s',
-                    deleted, report.get('deleted'))
-        return {'deleted': deleted, 'by_table': report.get('deleted')}
+    by_table = {}
+    if days > 0:
+        # No VACUUM here: it needs an exclusive lock and free space equal to
+        # the database. Steady-state pruning keeps the freed pages on the
+        # freelist for reuse, so the file stops growing without ever blocking
+        # the panel. Use `serverkit disk` to actually shrink the file.
+        report = disk_reclaim_service.prune_telemetry(days=days, vacuum=False)
+        by_table.update(report.get('deleted') or {})
+    # History tables (audit, notifications, cron runs, ...) ride the same tick
+    # under their own settings, so disabling telemetry retention leaves them on.
+    from app.services import history_retention_service
+    by_table.update(history_retention_service.prune())
+    deleted = sum(by_table.values())
+    result = {'deleted': deleted, 'by_table': by_table} if deleted else {}
+    if os.name != 'nt':
+        # Files on the same tick: old update/build logs, and the previous
+        # version's install once the current one has been live a day.
+        from app.services import log_limits_service, slot_retention_service
+        files = {k: v for k, v in log_limits_service.prune_files().items() if v}
+        if files:
+            result['files'] = files
+        slot = slot_retention_service.remove_previous_slot()
+        if slot:
+            result['previous_slot'] = slot
+    if result:
+        logger.info('Retention pruned: %s', result)
+        return result
     return None
+
+
+def run_disk_alert():
+    """Notify admins when the panel host's disk crosses 85% / 95%
+    (plan 85 §D3). On by default; ``storage.disk_alert_percent=0`` disables."""
+    from app.services import disk_alert_service
+    level = disk_alert_service.check()
+    return {'level': level} if level else None
 
 
 def run_security_feed_check():
@@ -554,6 +578,7 @@ _BUILTINS = [
     ('builtin.security_feed',       run_security_feed_check,   'security-feed',     86400, 600),
     ('builtin.job_retention',       run_job_retention,         'job-retention',      21600, 1500),
     ('builtin.telemetry_retention', run_telemetry_retention,   'telemetry-retention', 21600, 1800),
+    ('builtin.disk_alert',          run_disk_alert,            'disk-alert',         900,   240),
     # Fleet alert thresholds. Configurable since the Fleet page shipped, and
     # never evaluated until this row existed.
     ('builtin.fleet_thresholds',    run_fleet_threshold_checks, 'fleet-thresholds', FLEET_THRESHOLD_INTERVAL, 45),

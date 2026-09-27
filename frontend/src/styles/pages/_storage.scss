@@ -1,0 +1,131 @@
+// Settings → Storage (plan 85 §D1/§D2): where the panel host's disk goes,
+// the rollback slot, and the retention windows that bound ServerKit's share.
+// Card/row chrome comes from _settings.scss; only what is specific lives here.
+
+.storage-tab {
+    &__actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: $space-2;
+    }
+
+    &__path,
+    &__mono {
+        font-family: $font-mono;
+        word-break: break-all;
+    }
+
+    &__muted {
+        margin: 0;
+        color: $text-tertiary;
+        font-size: $font-size-sm;
+    }
+
+    &__note {
+        margin: $space-3 0 0;
+        padding: $space-2 $space-3;
+        border: 1px solid transparent;
+        border-radius: $radius-md;
+        @include status-variant($text-primary, $warning-bg, $warning-border);
+        font-size: $font-size-sm;
+    }
+
+    &__input {
+        inline-size: 120px;
+    }
+}
+
+// Progress bars share one reset: a native <progress> carries its value, so
+// the fill width never needs an inline style.
+@mixin storage-progress($height, $fill) {
+    display: block;
+    inline-size: 100%;
+    block-size: $height;
+    overflow: hidden;
+    border: 0;
+    border-radius: $radius-full;
+    background: $bg-hover;
+    appearance: none;
+
+    &::-webkit-progress-bar { background: $bg-hover; }
+    &::-webkit-progress-value { background: $fill; }
+    &::-moz-progress-bar { background: $fill; }
+}
+
+.storage-disk {
+    &__summary {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: $space-2 $space-4;
+        margin-block-end: $space-3;
+    }
+
+    &__percent {
+        color: $text-primary;
+        font-size: $font-size-2xl;
+        font-weight: $font-weight-semibold;
+        font-variant-numeric: tabular-nums;
+    }
+
+    &__detail {
+        color: $text-secondary;
+        font-size: $font-size-sm;
+    }
+
+    &__free {
+        margin-inline-start: auto;
+        color: $text-secondary;
+        font-size: $font-size-sm;
+    }
+
+    &__bar {
+        @include storage-progress(8px, $success);
+
+        &--warning { @include storage-progress(8px, $warning); }
+        &--danger { @include storage-progress(8px, $danger); }
+    }
+}
+
+.storage-breakdown {
+    display: flex;
+    flex-direction: column;
+    gap: $space-3;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+
+    &__row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: $space-1 $space-3;
+        align-items: baseline;
+    }
+
+    &__label {
+        min-width: 0;
+        color: $text-primary;
+        font-size: $font-size-sm;
+        font-weight: $font-weight-medium;
+    }
+
+    &__size {
+        color: $text-primary;
+        font-size: $font-size-sm;
+        font-variant-numeric: tabular-nums;
+        text-align: end;
+    }
+
+    &__reclaim {
+        grid-column: 1 / -1;
+        color: $text-tertiary;
+        font-size: $font-size-xs;
+
+        &:empty { display: none; }
+    }
+
+    &__bar {
+        grid-column: 1 / -1;
+        @include storage-progress(4px, $accent-primary);
+    }
+}

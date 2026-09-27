@@ -46,10 +46,24 @@ release history; historical `agent-v*` tags are not panel releases.
   `docker-compose.yml`) extracted to an empty directory.
 - `serverkit create-admin`, `reset-password`, `unlock-user`, `make-admin`,
   `activate-user` and `deactivate-user` ignored their flags and always prompted.
+- The panel's database no longer grows without bound on a busy box: old job
+  log lines, successful background checks (now kept a day) and a dozen history
+  tables (audit and error logs, notifications, deployment jobs, cron runs,
+  webhook and event deliveries, sandbox runs) are pruned on a schedule.
+- Updates no longer leave the downloaded release behind in `/tmp`, and no longer
+  keep a second full copy of the previous version as a tree backup.
 
 ### Changed
 
 - Complete and improve Traditional Chinese translations.
+- New Settings → Storage page: where the disk goes, the previous version kept
+  for rollback, a Free up space action and the retention settings.
+- Admins are notified when the panel host's disk reaches 85% and again at 95%,
+  and a deploy is refused before anything stops when under 512 MB is free.
+- The previous version's install is removed 24 hours after a healthy update.
+- On disks under 50 GB, ServerKit keeps shorter history by default and one
+  upgrade snapshot instead of three; panel logs are rotated and new app
+  containers get a log size cap.
 - Let the template catalog certification test point at an external registry
   tree (`SERVERKIT_TEMPLATES_DIR`, `SERVERKIT_TEMPLATES_INDEX`), so the
   official template registry's CI holds every template to the installer's
