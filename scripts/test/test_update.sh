@@ -1035,8 +1035,8 @@ fi
 # operator's offline tarball must survive; stale leftovers are swept.
 # --------------------------------------------------------------------------
 t="$WORK/t20b"; mkdir -p "$t/bin" "$t/tmp" "$t/src/serverkit/scripts" "$t/live" "$t/slot"
-if [ -z "$tarch" ] || ! command -v sha256sum >/dev/null 2>&1; then
-    skip "deploy_release scratch cleanup — needs sha256sum + a known arch (runs on Linux CI)"
+if [ -z "$tarch" ] || ! command -v sha256sum >/dev/null 2>&1 || ! command -v tar >/dev/null 2>&1; then
+    skip "deploy_release scratch cleanup — needs sha256sum, tar + a known arch (runs on Linux CI)"
 else
     printf '#!/bin/sh\n' > "$t/src/serverkit/serverkit"
     tar czf "$t/release.tar.gz" -C "$t/src" serverkit
