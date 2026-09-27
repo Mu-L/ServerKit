@@ -221,7 +221,7 @@ _LINKS = {
     'monitoring.alert': '/monitoring',
     'host.specs_changed': '/monitoring',
     'host.storage_advisory': '/monitoring',
-    'storage.disk_low': '/monitoring',
+    'storage.disk_low': '/settings/storage',
     'drift.detected': '/monitoring/doctor',
     'dns.sync_failed': '/domains',
     'dns.unresolved': '/domains',
