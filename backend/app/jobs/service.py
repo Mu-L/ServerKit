@@ -145,12 +145,56 @@ class JobService:
     def cleanup_old(cls, max_age_seconds=86400):
         """Delete terminal jobs whose completion is older than the window."""
         cutoff = datetime.utcnow() - timedelta(seconds=max_age_seconds)
-        deleted = (Job.query
-                   .filter(Job.status.in_(Job.TERMINAL_STATUSES))
-                   .filter(Job.completed_at.isnot(None))
-                   .filter(Job.completed_at < cutoff)
-                   .delete(synchronize_session=False))
+        ids = [row[0] for row in (
+            db.session.query(Job.id)
+            .filter(Job.status.in_(Job.TERMINAL_STATUSES))
+            .filter(Job.completed_at.isnot(None))
+            .filter(Job.completed_at < cutoff)
+            .all())]
+        deleted = cls._delete_with_logs(ids)
         db.session.commit()
+        return deleted
+
+    @staticmethod
+    def _delete_with_logs(ids):
+        """Delete jobs and their run log lines together. A job's lines live in
+        ``run_log_entries`` keyed by its id; deleting only the job strands
+        them there forever, since nothing else prunes that table."""
+        if not ids:
+            return 0
+        from app.models.run_log import RunLogEntry
+        (RunLogEntry.query
+         .filter(RunLogEntry.run_kind == 'job', RunLogEntry.run_id.in_(ids))
+         .delete(synchronize_session=False))
+        return (Job.query
+                .filter(Job.id.in_(ids))
+                .delete(synchronize_session=False))
+
+    @classmethod
+    def prune_orphan_logs(cls, older_than, batch_size=5000):
+        """Delete job log lines whose job no longer exists. Boxes that pruned
+        jobs before their lines were deleted with them carry these orphans;
+        only lines older than ``older_than`` are considered, so a line written
+        just before its job row commits is never mistaken for one."""
+        from sqlalchemy import exists
+        from app.models.run_log import RunLogEntry
+        deleted = 0
+        while True:
+            ids = [row[0] for row in (
+                db.session.query(RunLogEntry.id)
+                .filter(RunLogEntry.run_kind == 'job')
+                .filter(RunLogEntry.created_at < older_than)
+                .filter(~exists().where(Job.id == RunLogEntry.run_id))
+                .limit(batch_size)
+                .all())]
+            if not ids:
+                break
+            deleted += (RunLogEntry.query
+                        .filter(RunLogEntry.id.in_(ids))
+                        .delete(synchronize_session=False))
+            db.session.commit()
+            if len(ids) < batch_size:
+                break
         return deleted
 
     @classmethod
@@ -181,12 +225,11 @@ class JobService:
                     .all())]
                 if not ids:
                     break
-                deleted += (Job.query
-                            .filter(Job.id.in_(ids))
-                            .delete(synchronize_session=False))
+                deleted += cls._delete_with_logs(ids)
                 db.session.commit()
                 if len(ids) < batch_size:
                     break
+        cls.prune_orphan_logs(now - timedelta(days=retention_days), batch_size)
         return deleted
 
 

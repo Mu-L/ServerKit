@@ -322,6 +322,37 @@ class TestJobRetention:
         assert ids['old_cancel'] not in survivors
         assert ids['ancient_failed'] not in survivors
 
+    def test_prune_deletes_the_jobs_log_lines_and_old_orphans(self, app):
+        # A pruned job's run log lines used to stay behind forever: a 25 GB
+        # box carried 540k orphaned rows (~160 MB with the index).
+        from datetime import datetime, timedelta
+        from app.models.run_log import RunLogEntry
+
+        now = datetime.utcnow()
+        old = Job(kind='t.ok', status=Job.STATUS_SUCCEEDED,
+                  completed_at=now - timedelta(days=30), created_at=now - timedelta(days=30))
+        fresh = Job(kind='t.ok', status=Job.STATUS_SUCCEEDED,
+                    completed_at=now - timedelta(days=1), created_at=now - timedelta(days=1))
+        db.session.add_all([old, fresh])
+        db.session.commit()
+        old_id, fresh_id = old.id, fresh.id
+
+        def _line(run_id, days, kind='job'):
+            db.session.add(RunLogEntry(run_kind=kind, run_id=run_id, message='x',
+                                       created_at=now - timedelta(days=days)))
+        _line(old_id, 30)
+        _line(fresh_id, 1)
+        _line('gone-long-ago', 40)            # orphan from an earlier prune
+        _line('not-committed-yet', 0)         # too new to call an orphan
+        _line('gone-long-ago', 40, kind='sandbox')  # another kind's lines
+        db.session.commit()
+
+        JobService.prune_terminal(retention_days=14)
+
+        left = {(r.run_kind, r.run_id) for r in RunLogEntry.query.all()}
+        assert left == {('job', fresh_id), ('job', 'not-committed-yet'),
+                        ('sandbox', 'gone-long-ago')}
+
     def test_retention_handler_respects_zero_disable(self, app, monkeypatch):
         from app.jobs import builtin_handlers
         from app.services.settings_service import SettingsService
