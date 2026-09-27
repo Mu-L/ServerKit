@@ -645,6 +645,60 @@ else
 fi
 
 # --------------------------------------------------------------------------
+# T10i — plan 85 B3: with SERVERKIT_BACKUP_RETENTION unset, a filesystem under
+# 50 GiB keeps ONE upgrade snapshot (each is a full DB copy), a larger one
+# keeps 3, and an unreadable size keeps the old default of 3.
+# --------------------------------------------------------------------------
+t="$WORK/t10i"; mkdir -p "$t/bin" "$t/backups"
+_keep_with_df() {  # $1 = total KiB df reports ('' = df fails)
+    if [ -n "$1" ]; then
+        printf '#!/usr/bin/env bash\necho "Filesystem 1024-blocks Used Available Capacity Mounted"\necho "/dev/vda1 %s 1 1 1%% /"\n' "$1" > "$t/bin/df"
+    else
+        printf '#!/usr/bin/env bash\nexit 1\n' > "$t/bin/df"
+    fi
+    chmod +x "$t/bin/df"
+    ( set -Eeuo pipefail; export PATH="$t/bin:$PATH"; BACKUP_DIR="$t/backups"; default_backup_keep )
+}
+k_small="$(_keep_with_df 26214400)"     # 25 GiB
+k_large="$(_keep_with_df 524288000)"    # 500 GiB
+k_unknown="$(_keep_with_df '')"
+if [ "$k_small" = 1 ] && [ "$k_large" = 3 ] && [ "$k_unknown" = 3 ]; then
+    ok "default_backup_keep: 1 snapshot under 50 GiB, 3 above or when unknown"
+else
+    bad "default_backup_keep: small=$k_small large=$k_large unknown=$k_unknown (want 1/3/3)"
+fi
+
+# --------------------------------------------------------------------------
+# T10j — plan 85 B2: on a blue/green install the active slot stays on disk as
+# the rollback, so backup_current must not write a serverkit-tree-* copy of
+# it (a second full copy of the same code per update). A plain-directory
+# install still gets its tree backup.
+# --------------------------------------------------------------------------
+t="$WORK/t10j"
+_tree_backups_after_backup_current() {  # $1 = bluegreen|plain
+    rm -rf "$t"; mkdir -p "$t/opt/serverkit-a/backend" "$t/backups"
+    if [ "$1" = bluegreen ]; then
+        ln -s "$t/opt/serverkit-a" "$t/opt/serverkit"
+    else
+        mv "$t/opt/serverkit-a" "$t/opt/serverkit"
+    fi
+    (
+        set -Eeuo pipefail
+        DRY_RUN=0; INSTALL_DIR="$t/opt/serverkit"; BACKUP_DIR="$t/backups"
+        SERVERKIT_BACKUP_RETENTION=3
+        backup_current
+    ) >/dev/null 2>&1 || true
+    find "$t/backups" -mindepth 1 -maxdepth 1 -name 'serverkit-tree-*' | wc -l
+}
+trees_bg="$(_tree_backups_after_backup_current bluegreen)"
+trees_plain="$(_tree_backups_after_backup_current plain)"
+if [ "$trees_bg" -eq 0 ] && [ "$trees_plain" -eq 1 ]; then
+    ok "backup_current skips the tree copy on blue/green, keeps it for a plain install"
+else
+    bad "tree backups: bluegreen=$trees_bg plain=$trees_plain (want 0/1)"
+fi
+
+# --------------------------------------------------------------------------
 # T11 — zero-downtime regression: reload_nginx_graceful must RELOAD a running
 # nginx and must NEVER stop it. Host nginx fronts every managed app, so a stop
 # during a panel update used to black out unrelated sites. A recording systemctl

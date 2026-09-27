@@ -1113,7 +1113,12 @@ backup_current() {
 
     local tree_backup
     tree_backup="$BACKUP_DIR/serverkit-tree-$(date +%Y%m%d-%H%M%S)"
-    if [ -d "$active" ]; then
+    if [ -L "$INSTALL_DIR" ] && [ -d "$active" ]; then
+        # Blue/green: the update installs into the OTHER slot, so this one
+        # stays on disk as the rollback. A tree copy of it was a second full
+        # copy of the same code (~1 GB per update on a small VPS).
+        info "Install tree kept in place as the rollback slot: $active"
+    elif [ -d "$active" ]; then
         # The SQLite database is NOT part of the tree snapshot: it was just
         # written as the pre-upgrade copy above, and rollback restores from
         # that copy, never from the tree. Copying it here too doubled every
@@ -1684,9 +1689,26 @@ backups_size_kb() {
     du -sk "$BACKUP_DIR" 2>/dev/null | awk '{print $1}' || echo 0
 }
 
+# How many upgrade snapshots to keep when SERVERKIT_BACKUP_RETENTION is unset:
+# 1 on a filesystem under 50 GiB, else 3. Each snapshot is a full database
+# copy, and on a 25 GB VPS three of them compete with the apps for the disk.
+# An unreadable size keeps the old default.
+default_backup_keep() {
+    local total_kb
+    total_kb="$(df -Pk "$BACKUP_DIR" 2>/dev/null | awk 'NR==2 {print $2}' || true)"
+    if [ -z "$total_kb" ]; then
+        total_kb="$(df -Pk / 2>/dev/null | awk 'NR==2 {print $2}' || true)"
+    fi
+    if [ -n "$total_kb" ] && [ "$total_kb" -lt $((50 * 1024 * 1024)) ] 2>/dev/null; then
+        echo 1
+    else
+        echo 3
+    fi
+}
+
 # Trim every backup kind to the retention cap. Safe to call repeatedly.
 trim_backups() {
-    local keep="${1:-${SERVERKIT_BACKUP_RETENTION:-3}}"
+    local keep="${1:-${SERVERKIT_BACKUP_RETENTION:-$(default_backup_keep)}}"
     prune_old_backups 'serverkit-tree-*'             "$keep"
     prune_old_backups 'serverkit-pre-upgrade-*.db'   "$keep"
     prune_old_backups 'serverkit-pre-upgrade-*.dump' "$keep"
