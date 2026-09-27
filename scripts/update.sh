@@ -848,13 +848,21 @@ download_release() {
     tmp_dir="$(mktemp -d)"
     output="$tmp_dir/serverkit-${version}-linux-${arch}.tar.gz"
 
+    # This runs in a command substitution, so the caller never learns tmp_dir
+    # on failure: remove it here before halting, or every failed download
+    # strands a directory in /tmp.
     step "Downloading release tarball (${arch})..." >&2
-    curl -sfL "$tarball_url" -o "$output" || halt "Failed to download $tarball_url"
+    if ! curl -sfL "$tarball_url" -o "$output"; then
+        rm -rf "$tmp_dir"
+        halt "Failed to download $tarball_url"
+    fi
 
     step "Verifying checksum..." >&2
     if curl -sfL "$checksum_url" -o "$tmp_dir/checksums.txt"; then
         cd "$tmp_dir"
         if ! sha256sum -c <(grep "serverkit-${version}-linux-${arch}.tar.gz" checksums.txt) >/dev/null 2>&1; then
+            cd /
+            rm -rf "$tmp_dir"
             halt "Checksum verification failed for release tarball."
         fi
         good "Checksum verified" >&2
@@ -863,6 +871,20 @@ download_release() {
     fi
 
     echo "$output"
+}
+
+# Remove release downloads that earlier updates left in the temp dir (before
+# the download dir was cleaned up, every update stranded ~70 MB there). Only
+# directories holding a release tarball and untouched for an hour are taken,
+# so a concurrent download is never pulled out from under itself.
+sweep_stale_downloads() {
+    local tarball
+    while IFS= read -r tarball; do
+        [ -n "$tarball" ] || continue
+        rm -rf "$(dirname "$tarball")" 2>/dev/null || true
+    done < <(find "${TMPDIR:-/tmp}" -mindepth 2 -maxdepth 2 -path '*/tmp.*/serverkit-*-linux-*.tar.gz' \
+                 -mmin +60 2>/dev/null || true)
+    return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -1323,14 +1345,23 @@ deploy_release() {
     phase "Downloading Release"
 
     local tarball stage unpacked
+    sweep_stale_downloads
     tarball="$(download_release "$version")"
+    # The download dir is ours to remove; an operator's offline tarball is not.
+    # Both scratch dirs are recorded globally so cleanup_on_exit removes them
+    # when a halt below aborts the update.
+    if [ "$tarball" != "${SERVERKIT_OFFLINE_TARBALL:-}" ]; then
+        RELEASE_DOWNLOAD_DIR="$(dirname "$tarball")"
+    fi
 
     if [ "$DRY_RUN" = "1" ]; then
         info "[dry-run] would unpack $tarball into $target"
+        remove_release_scratch
         return 0
     fi
 
     stage="$(mktemp -d)"
+    RELEASE_STAGE_DIR="$stage"
     tar xzf "$tarball" -C "$stage"
 
     unpacked="$stage/serverkit"
@@ -1355,7 +1386,7 @@ deploy_release() {
 
     rm -rf "$target"
     cp -a "$unpacked" "$target"
-    rm -rf "$stage"
+    remove_release_scratch
 
     chmod +x "$target/serverkit"
     chmod +x "$target/scripts/"*.sh 2>/dev/null || true
@@ -1564,11 +1595,26 @@ rollback() {
     fi
 }
 
+# Remove deploy_release's download and unpack dirs. Warn-and-continue: a
+# scratch dir that will not delete must never fail an update or its rollback.
+remove_release_scratch() {
+    if [ -n "${RELEASE_DOWNLOAD_DIR:-}" ]; then
+        rm -rf "$RELEASE_DOWNLOAD_DIR" 2>/dev/null || true
+        RELEASE_DOWNLOAD_DIR=""
+    fi
+    if [ -n "${RELEASE_STAGE_DIR:-}" ]; then
+        rm -rf "$RELEASE_STAGE_DIR" 2>/dev/null || true
+        RELEASE_STAGE_DIR=""
+    fi
+    return 0
+}
+
 # If the update fails after we have switched the symlink, roll back to the
 # previous slot automatically. Registered as the EXIT trap by the run block
 # below; defined here (above the source guard) so it stays unit-testable.
 cleanup_on_exit() {
     local rc=$?
+    remove_release_scratch
     [ "$rc" -eq 0 ] && return 0
     if [ "$DRY_RUN" = "0" ] && [ -n "${PREVIOUS_DIR:-}" ] && \
        [ "${ROLLING_BACK:-0}" != "1" ] && [ "${HEALTH_PASSED:-0}" != "1" ]; then

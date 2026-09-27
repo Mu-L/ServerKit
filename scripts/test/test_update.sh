@@ -975,6 +975,73 @@ EOF
 fi
 
 # --------------------------------------------------------------------------
+# T20b — deploy_release removes its download and unpack dirs. It used to leave
+# the ~70 MB tarball's mktemp dir behind on every update (a 25 GB box had 11
+# of them, 644 MB), and a failed download stranded its dir as well. An
+# operator's offline tarball must survive; stale leftovers are swept.
+# --------------------------------------------------------------------------
+t="$WORK/t20b"; mkdir -p "$t/bin" "$t/tmp" "$t/src/serverkit/scripts" "$t/live" "$t/slot"
+if [ -z "$tarch" ] || ! command -v sha256sum >/dev/null 2>&1; then
+    skip "deploy_release scratch cleanup — needs sha256sum + a known arch (runs on Linux CI)"
+else
+    printf '#!/bin/sh\n' > "$t/src/serverkit/serverkit"
+    tar czf "$t/release.tar.gz" -C "$t/src" serverkit
+    sha="$(sha256sum "$t/release.tar.gz" | cut -d' ' -f1)"
+    printf '%s  serverkit-v9.9.9-linux-%s.tar.gz\n' "$sha" "$tarch" > "$t/checksums.txt"
+    cat > "$t/bin/curl" <<EOF
+#!/usr/bin/env bash
+out=""; url=""
+while [ \$# -gt 0 ]; do
+    case "\$1" in -o) out="\$2"; shift 2 ;; -*) shift ;; *) url="\$1"; shift ;; esac
+done
+[ -n "\${T20B_CURL_FAIL:-}" ] && exit 22
+case "\$url" in
+    *checksums.txt) cp "$t/checksums.txt" "\$out" ;;
+    *)              cp "$t/release.tar.gz" "\$out" ;;
+esac
+EOF
+    chmod +x "$t/bin/curl"
+    # A leftover from an older updater (swept) and a fresh one (kept: it could
+    # be a concurrent download).
+    mkdir -p "$t/tmp/tmp.OLDLEFTOVER" "$t/tmp/tmp.FRESHDL"
+    : > "$t/tmp/tmp.OLDLEFTOVER/serverkit-v1.0.0-linux-amd64.tar.gz"
+    : > "$t/tmp/tmp.FRESHDL/serverkit-v1.0.1-linux-amd64.tar.gz"
+    touch -d '2 hours ago' "$t/tmp/tmp.OLDLEFTOVER/serverkit-v1.0.0-linux-amd64.tar.gz"
+
+    _t20b_deploy() {
+        (
+            set -Eeuo pipefail
+            export PATH="$t/bin:$PATH" TMPDIR="$t/tmp"
+            DRY_RUN=0; INSTALL_DIR="$t/live"; SERVERKIT_MIRROR_URL="http://mirror.invalid"
+            SERVERKIT_OFFLINE_TARBALL="${1:-}"
+            preserve_installed_plugins() { :; }
+            trap cleanup_on_exit EXIT
+            deploy_release "$t/slot/target" v9.9.9
+        ) >/dev/null 2>&1
+    }
+    _t20b_scratch() { find "$t/tmp" -mindepth 1 -maxdepth 1 ! -name tmp.FRESHDL | wc -l; }
+
+    if _t20b_deploy && [ -x "$t/slot/target/serverkit" ] && [ "$(_t20b_scratch)" -eq 0 ] \
+       && [ -d "$t/tmp/tmp.FRESHDL" ]; then
+        ok "deploy_release leaves no download/unpack dir behind and sweeps stale ones"
+    else
+        bad "deploy_release left scratch in TMPDIR: [$(ls "$t/tmp" | tr '\n' ' ')]"
+    fi
+
+    if _t20b_deploy "$t/release.tar.gz" && [ -f "$t/release.tar.gz" ] && [ "$(_t20b_scratch)" -eq 0 ]; then
+        ok "deploy_release keeps an operator's offline tarball"
+    else
+        bad "deploy_release deleted the offline tarball or left scratch: [$(ls "$t/tmp" | tr '\n' ' ')]"
+    fi
+
+    if ! T20B_CURL_FAIL=1 _t20b_deploy && [ "$(_t20b_scratch)" -eq 0 ]; then
+        ok "a failed download leaves no dir behind"
+    else
+        bad "a failed download stranded its dir: [$(ls "$t/tmp" | tr '\n' ' ')]"
+    fi
+fi
+
+# --------------------------------------------------------------------------
 # T21 — U5/U8: a health-check-triggered rollback halts, which fires the EXIT
 # trap (cleanup_on_exit) — that trap must NOT run a second rollback on top of
 # the one that just finished. And the rollback itself must never abort
