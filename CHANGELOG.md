@@ -49,6 +49,7 @@ release history; historical `agent-v*` tags are not panel releases.
 
 ### Changed
 
+- Complete and improve Traditional Chinese translations.
 - Let the template catalog certification test point at an external registry
   tree (`SERVERKIT_TEMPLATES_DIR`, `SERVERKIT_TEMPLATES_INDEX`), so the
   official template registry's CI holds every template to the installer's
