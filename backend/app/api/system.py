@@ -190,6 +190,19 @@ def get_disk_metrics():
     return jsonify(SystemService.get_disk_metrics()), 200
 
 
+@system_bp.route('/storage', methods=['GET'])
+@admin_required
+def get_storage_overview():
+    """Where the panel host's disk goes, plus the retention settings that
+    bound ServerKit's own share. Reads only."""
+    from app.services import storage_overview_service
+
+    try:
+        return jsonify(storage_overview_service.overview()), 200
+    except Exception as exc:  # noqa: BLE001 - reported, not swallowed
+        return unexpected_response(exc)
+
+
 @system_bp.route('/disk/reclaim/report', methods=['GET'])
 @admin_required
 def get_disk_reclaim_report():
