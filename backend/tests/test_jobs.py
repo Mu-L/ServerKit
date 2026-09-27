@@ -191,7 +191,7 @@ class TestBuiltins:
         # Fleet alert thresholds. The evaluation existed and had no caller, so
         # thresholds set on the Fleet page were never checked against anything.
         assert 'builtin.fleet_thresholds' in kinds
-        assert len([k for k in kinds if k.startswith('builtin.')]) == 17
+        assert len([k for k in kinds if k.startswith('builtin.')]) == 18
 
         builtin_handlers.seed_builtin_schedules()
         # 17 builtin.* schedules (incl. restore-point/job/telemetry retention,
@@ -199,10 +199,10 @@ class TestBuiltins:
         # fleet threshold check) + login-link/SSO reapers + drift/FIM/bandwidth
         # sweeps + the host doctor sweep AND the fleet doctor sweep (plan 26)
         # + the setup-health nag (plan 22).
-        assert ScheduledJob.query.count() == 25
+        assert ScheduledJob.query.count() == 26
         # Seeding twice doesn't duplicate.
         builtin_handlers.seed_builtin_schedules()
-        assert ScheduledJob.query.count() == 25
+        assert ScheduledJob.query.count() == 26
 
 
 class TestApi:

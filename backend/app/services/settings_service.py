@@ -79,6 +79,16 @@ class SettingsService:
             'type': 'integer',
             'description': 'Hours after a healthy update before the previous version\'s install is removed. Rollback within that window stays instant. 0 keeps it until the next update.'
         },
+        'storage.disk_alert_percent': {
+            'value': 85,
+            'type': 'integer',
+            'description': 'Notify admins when the panel host disk is this full (percent); again at 95%. 0 disables.'
+        },
+        'storage.disk_alert_level': {
+            'value': '',
+            'type': 'string',
+            'description': 'Last disk alert level sent (warning/critical), so each crossing notifies once.'
+        },
         'storage.size_profile_applied': {
             'value': False,
             'type': 'boolean',

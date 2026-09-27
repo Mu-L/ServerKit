@@ -110,6 +110,14 @@ _CATALOG = {
         'severity': 'warning',
         'category': 'system',
     },
+    # The panel host's disk crossed the warning (85%) or critical (95%) line
+    # (see app/services/disk_alert_service.py). Sent once per crossing.
+    'storage.disk_low': {
+        'title': 'Disk {percent}% full on this server',
+        'template': 'generic',
+        'severity': 'warning',
+        'category': 'system',
+    },
     # Daily doctor sweep found managed site domains that no longer resolve
     # (see app/services/doctor_service.py:_dns_checks).
     'dns.unresolved': {
@@ -213,6 +221,7 @@ _LINKS = {
     'monitoring.alert': '/monitoring',
     'host.specs_changed': '/monitoring',
     'host.storage_advisory': '/monitoring',
+    'storage.disk_low': '/monitoring',
     'drift.detected': '/monitoring/doctor',
     'dns.sync_failed': '/domains',
     'dns.unresolved': '/domains',

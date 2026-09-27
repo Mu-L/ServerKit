@@ -389,6 +389,14 @@ def run_telemetry_retention():
     return None
 
 
+def run_disk_alert():
+    """Notify admins when the panel host's disk crosses 85% / 95%
+    (plan 85 §D3). On by default; ``storage.disk_alert_percent=0`` disables."""
+    from app.services import disk_alert_service
+    level = disk_alert_service.check()
+    return {'level': level} if level else None
+
+
 def run_security_feed_check():
     """Daily security-advisory feed check.
 
@@ -570,6 +578,7 @@ _BUILTINS = [
     ('builtin.security_feed',       run_security_feed_check,   'security-feed',     86400, 600),
     ('builtin.job_retention',       run_job_retention,         'job-retention',      21600, 1500),
     ('builtin.telemetry_retention', run_telemetry_retention,   'telemetry-retention', 21600, 1800),
+    ('builtin.disk_alert',          run_disk_alert,            'disk-alert',         900,   240),
     # Fleet alert thresholds. Configurable since the Fleet page shipped, and
     # never evaluated until this row existed.
     ('builtin.fleet_thresholds',    run_fleet_threshold_checks, 'fleet-thresholds', FLEET_THRESHOLD_INTERVAL, 45),
