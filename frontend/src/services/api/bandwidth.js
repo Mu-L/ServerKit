@@ -15,3 +15,9 @@ export async function runBandwidthAggregate(day = null) {
         body: JSON.stringify(day ? { day } : {}),
     });
 }
+
+// Per-app request rate, status classes, latency percentiles and cache hit
+// ratio from the timed access log. period: '1h' | '24h' | '7d' | '30d'.
+export async function getAppRequestMetrics(appId, period = '24h') {
+    return this.request(`/bandwidth/apps/${appId}/requests?period=${encodeURIComponent(period)}`);
+}

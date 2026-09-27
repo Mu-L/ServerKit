@@ -11,6 +11,7 @@ from app.error_reporting import unexpected_response
 from ..middleware.rbac import admin_required, viewer_required
 from ..models import Application
 from ..services.bandwidth_service import BandwidthService
+from ..services.request_metrics_service import RequestMetricsService
 from ..services.resource_grant_service import ResourceGrantService
 
 bandwidth_bp = Blueprint('bandwidth', __name__)
@@ -49,6 +50,17 @@ def get_app_bandwidth(app_id):
         })
     except Exception as exc:  # noqa: BLE001 - reported, not swallowed
         return unexpected_response(exc)
+
+
+@bandwidth_bp.route('/apps/<int:app_id>/requests', methods=['GET'])
+@viewer_required
+def get_app_request_metrics(app_id):
+    """Request rate, status classes, latency percentiles and cache hit ratio
+    from the timed access log (plan 86 §A2). ``period``: 1h, 24h, 7d or 30d."""
+    # Unknown/foreign app → NotFoundError (404); bad period → ValidationError
+    # (400); both through the global handler.
+    return jsonify(RequestMetricsService.series_for_user(
+        get_current_user(), app_id, period=request.args.get('period', '24h')))
 
 
 @bandwidth_bp.route('/aggregate', methods=['POST'])

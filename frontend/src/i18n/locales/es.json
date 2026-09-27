@@ -6689,6 +6689,15 @@
             "telemetryRetentionHint": "Mensajes de cola, eventos del sistema y registros de uso de la API.",
             "title": "Almacenamiento",
             "usedOfTotal": "{{used}} usados de {{total}}"
+        },
+        "requestMetrics": {
+            "cacheHit": "Tasa de aciertos de caché",
+            "errorRate": "Tasa de 5xx",
+            "last24h": "Últimas 24 horas",
+            "notCached": "Sin caché",
+            "p95": "Latencia p95",
+            "requests": "Solicitudes",
+            "title": "Tráfico"
         }
     },
     "auth": {

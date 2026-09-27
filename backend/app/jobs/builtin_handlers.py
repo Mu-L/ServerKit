@@ -397,6 +397,15 @@ def run_disk_alert():
     return {'level': level} if level else None
 
 
+def run_request_metrics():
+    """Roll new access-log lines into per-app request metrics (plan 86 §A2).
+
+    A builtin tick, so its once-a-minute successes get the 24 h tick retention
+    rather than the full job retention."""
+    from app.services.request_metrics_service import RequestMetricsService
+    return RequestMetricsService.sample()
+
+
 def run_security_feed_check():
     """Daily security-advisory feed check.
 
@@ -579,6 +588,7 @@ _BUILTINS = [
     ('builtin.job_retention',       run_job_retention,         'job-retention',      21600, 1500),
     ('builtin.telemetry_retention', run_telemetry_retention,   'telemetry-retention', 21600, 1800),
     ('builtin.disk_alert',          run_disk_alert,            'disk-alert',         900,   240),
+    ('builtin.request_metrics',     run_request_metrics,       'request-metrics',    60,    90),
     # Fleet alert thresholds. Configurable since the Fleet page shipped, and
     # never evaluated until this row existed.
     ('builtin.fleet_thresholds',    run_fleet_threshold_checks, 'fleet-thresholds', FLEET_THRESHOLD_INTERVAL, 45),

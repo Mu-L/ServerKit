@@ -48,3 +48,40 @@
         color: var(--text-faint);
     }
 }
+
+// Service detail Overview: Traffic card (requests / 5xx / p95 / cache hit
+// from the timed access log). Component: service-detail/RequestMetricsCard.
+.request-metrics {
+    &__window {
+        font-size: 12px;
+        color: var(--text-dim);
+    }
+
+    &__grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 16px;
+    }
+
+    &__stat {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+    }
+
+    &__label {
+        font-size: 11.5px;
+        color: var(--text-dim);
+    }
+
+    &__value {
+        font-family: var(--mono);
+        font-size: 18px;
+        color: var(--text);
+    }
+
+    &__spark {
+        max-width: 100%;
+    }
+}

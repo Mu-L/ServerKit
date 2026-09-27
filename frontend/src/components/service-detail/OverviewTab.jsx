@@ -8,6 +8,7 @@ import { getDeployStatus, formatRelativeTime, formatDuration } from '../../utils
 import { formatBytes } from '../../utils/formatBytes';
 import BandwidthSparkline from '../BandwidthSparkline';
 import ScheduledTasksCard from '../ScheduledTasksCard';
+import RequestMetricsCard from './RequestMetricsCard';
 import { KpiBand, MetricCard, Pill, Gauge, EnvTag, statusKind } from '@/components/ds';
 import { usePolling } from '@/hooks/usePolling';
 import { useTranslation } from 'react-i18next';
@@ -325,6 +326,9 @@ const OverviewTab = ({ app, deployConfig }) => {
                     <span className="overview-tab__bandwidth-caption">{t('app.overviewTab.last90Days', 'Last 90 days')}</span>
                 </div>
             )}
+
+            {/* Traffic (timed access log; hidden until requests exist) */}
+            <RequestMetricsCard appId={app.id} />
 
             {/* Recent Deployments */}
             <div className="overview-tab__card overview-tab__card--full">

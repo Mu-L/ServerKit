@@ -210,6 +210,7 @@ Regenerate (backend/):
 - `GET /backups/target-types`
 - `GET /bandwidth/apps`
 - `GET /bandwidth/apps/{app_id}`
+- `GET /bandwidth/apps/{app_id}/requests`
 - `GET /builds/apps/{app_id}/build-config`
 - `GET /builds/apps/{app_id}/build-logs`
 - `GET /builds/apps/{app_id}/build-logs/{timestamp}`

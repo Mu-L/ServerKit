@@ -4221,6 +4221,15 @@
             "repositoryUrl": "Repository URL",
             "trackThisServiceInVersionControl": "Track this service in version control — push to deploy."
         },
+        "requestMetrics": {
+            "cacheHit": "Cache hit ratio",
+            "errorRate": "5xx rate",
+            "last24h": "Last 24 hours",
+            "notCached": "Not cached",
+            "p95": "p95 latency",
+            "requests": "Requests",
+            "title": "Traffic"
+        },
         "requiresDocker": {
             "curlFsslHttpsGetDockerCom": "curl -fsSL https://get.docker.com | sh",
             "dockerIsnTAvailable": "Docker isn't available",
