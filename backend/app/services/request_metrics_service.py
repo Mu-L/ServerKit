@@ -369,18 +369,11 @@ class RequestMetricsService:
     # Read side
     # ------------------------------------------------------------------ #
 
-    @classmethod
-    def series_for_user(cls, user, app_id, period='24h'):
-        """:meth:`series` scoped to apps ``user`` can see. A missing or foreign
-        app is the same 404, so the route can't be used to probe app ids."""
-        from app.exceptions import NotFoundError
+    @staticmethod
+    def live_app(app_id):
+        """The live (not soft-deleted) application, or None."""
         from app.models.application import Application
-        from app.services.resource_grant_service import ResourceGrantService
-
-        app_row = Application.query_active().filter_by(id=app_id).first()
-        if app_row is None or not ResourceGrantService.can_access_app(user, app_row):
-            raise NotFoundError('Not found')
-        return cls.series(app_id, period=period)
+        return Application.query_active().filter_by(id=app_id).first()
 
     @classmethod
     def series(cls, app_id, period='24h', now=None):
