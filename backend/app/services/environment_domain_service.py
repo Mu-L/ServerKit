@@ -30,7 +30,7 @@ class EnvironmentDomainService:
     listen [::]:80;
     server_name {domain};
 
-    access_log /var/log/nginx/{site_name}.access.log;
+    access_log /var/log/nginx/{site_name}.access.log serverkit_timed;
     error_log /var/log/nginx/{site_name}.error.log;
 
 {extra_headers}

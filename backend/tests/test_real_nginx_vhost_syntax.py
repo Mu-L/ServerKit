@@ -61,7 +61,7 @@ def _nginx_t(tmp_path, vhost_config):
     relies on: writable log/cache dirs, the fastcgi_params file that
     `include fastcgi_params;` resolves against the conf prefix (= tmp_path
     under `-c`), and the http-level micro-cache zones ServerKit installs
-    as a conf.d snippet.
+    and timed log format ServerKit installs as conf.d snippets.
     """
     (tmp_path / 'log').mkdir(exist_ok=True)
     # nginx -t mkdirs the *_cache_path leaf dirs itself, but not parents.
@@ -74,6 +74,7 @@ def _nginx_t(tmp_path, vhost_config):
     zones.write_text(
         _localize(NginxService.MICROCACHE_ZONE_SNIPPET, tmp_path)
         + NginxService.WORDPRESS_RATE_LIMIT_ZONE_SNIPPET
+        + NginxService.TIMED_LOG_FORMAT_SNIPPET
     )
     vhost = tmp_path / 'vhost.conf'
     vhost.write_text(_localize(vhost_config, tmp_path))

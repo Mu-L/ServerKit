@@ -58,7 +58,7 @@ class NginxService:
     root {root_path};
     index index.php index.html index.htm;
 
-    access_log /var/log/nginx/{name}.access.log;
+    access_log /var/log/nginx/{name}.access.log serverkit_timed;
     error_log /var/log/nginx/{name}.error.log;
 
     location / {{
@@ -101,7 +101,7 @@ class NginxService:
     listen [::]:80;
     server_name {domains};
 
-    access_log /var/log/nginx/{name}.access.log;
+    access_log /var/log/nginx/{name}.access.log serverkit_timed;
     error_log /var/log/nginx/{name}.error.log;
 
     location / {{
@@ -132,7 +132,7 @@ class NginxService:
     root {root_path};
     index index.html index.htm;
 
-    access_log /var/log/nginx/{name}.access.log;
+    access_log /var/log/nginx/{name}.access.log serverkit_timed;
     error_log /var/log/nginx/{name}.error.log;
 
     location / {{
@@ -152,7 +152,7 @@ class NginxService:
     listen [::]:80;
     server_name {domains};
 
-    access_log /var/log/nginx/{name}.access.log;
+    access_log /var/log/nginx/{name}.access.log serverkit_timed;
     error_log /var/log/nginx/{name}.error.log;
 
     location / {{
@@ -222,7 +222,7 @@ limit_req_zone $server_name$binary_remote_addr zone=serverkit_wp_xmlrpc:10m rate
     listen [::]:80;
     server_name {domains};
 
-    access_log /var/log/nginx/{name}.access.log;
+    access_log /var/log/nginx/{name}.access.log serverkit_timed;
     error_log /var/log/nginx/{name}.error.log;
 
     location / {{
@@ -359,6 +359,23 @@ location = /wordpress {{
         return 301 /p/{slug}/;
     }}
 '''
+
+    # ==================== TIMED ACCESS LOG (plan 86 §A1) ====================
+    # Every vhost ServerKit writes logs in this format. The combined fields come
+    # first, unchanged, so every existing combined-format reader (bandwidth
+    # accounting, the fail2ban `^<HOST> -` filters) keeps matching; the timing
+    # fields are appended after them. The app id is the log file itself
+    # (/var/log/nginx/<app>.access.log) — a per-vhost `set` variable would make
+    # `nginx -t` warn on every server block that never sets it.
+    TIMED_LOG_FORMAT = 'serverkit_timed'
+    TIMED_LOG_CONF_NAME = 'serverkit-log-format.conf'
+    TIMED_LOG_FORMAT_SNIPPET = """# ServerKit timed access-log format (auto-generated; do not edit).
+# Combined fields first (compatible with combined parsers), then timing.
+log_format serverkit_timed '$remote_addr - $remote_user [$time_local] "$request" '
+                           '$status $body_bytes_sent "$http_referer" "$http_user_agent" '
+                           'rt=$request_time urt="$upstream_response_time" '
+                           'cs=$upstream_cache_status h=$host';
+"""
 
     # ==================== MICRO-CACHE (task #21) ====================
     # Opt-in per-site micro-cache: a very short (10s) full-page cache in front
@@ -758,6 +775,27 @@ location /p/ {{
             return {'success': False, 'error': str(e)}
 
     @classmethod
+    def ensure_log_format(cls) -> Dict:
+        """Write the ``serverkit_timed`` log_format to conf.d (idempotent).
+
+        ``log_format`` is http-context only, so like the micro-cache zone it is
+        a conf.d snippet, not part of any vhost. :meth:`write_vhost` calls this
+        before writing any vhost that references the format.
+        """
+        conf_path = os.path.join(cls.NGINX_CONF_DIR, 'conf.d', cls.TIMED_LOG_CONF_NAME)
+        try:
+            if os.path.isfile(conf_path):
+                with open(conf_path, 'r') as f:
+                    if f.read() == cls.TIMED_LOG_FORMAT_SNIPPET:
+                        return {'success': True, 'changed': False, 'path': conf_path}
+            written = write_privileged_file(conf_path, cls.TIMED_LOG_FORMAT_SNIPPET)
+            if not written['success']:
+                return {'success': False, 'error': written['error']}
+            return {'success': True, 'changed': True, 'path': conf_path}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    @classmethod
     def purge_micro_cache(cls) -> Dict:
         """Wipe the shared micro-cache directory contents. Linux-only.
 
@@ -902,6 +940,14 @@ location /p/ {{
         if (not name or os.path.basename(name) != name
                 or name in ('.', '..') or '\x00' in name):
             return {'success': False, 'error': f'Invalid site name: {name!r}'}
+
+        # A vhost naming the timed format fails `nginx -t` until the
+        # http-level log_format exists — declare it first.
+        if f' {cls.TIMED_LOG_FORMAT};' in content:
+            fmt = cls.ensure_log_format()
+            if not fmt.get('success'):
+                return {'success': False,
+                        'error': f"log format setup failed: {fmt.get('error')}"}
 
         available_path = os.path.join(cls.SITES_AVAILABLE, name)
         enabled_path = os.path.join(cls.SITES_ENABLED, name)
