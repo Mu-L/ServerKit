@@ -358,18 +358,22 @@ def run_telemetry_retention():
         days = int(days)
     except (TypeError, ValueError):
         days = 30
-    if days <= 0:
-        return None
-    # No VACUUM here: it needs an exclusive lock and free space equal to the
-    # database. Steady-state pruning keeps the freed pages on the freelist for
-    # reuse, so the file stops growing without ever blocking the panel. Use
-    # `serverkit disk` to actually shrink the file after a big backlog.
-    report = disk_reclaim_service.prune_telemetry(days=days, vacuum=False)
-    deleted = report.get('deleted_rows') or 0
+    by_table = {}
+    if days > 0:
+        # No VACUUM here: it needs an exclusive lock and free space equal to
+        # the database. Steady-state pruning keeps the freed pages on the
+        # freelist for reuse, so the file stops growing without ever blocking
+        # the panel. Use `serverkit disk` to actually shrink the file.
+        report = disk_reclaim_service.prune_telemetry(days=days, vacuum=False)
+        by_table.update(report.get('deleted') or {})
+    # History tables (audit, notifications, cron runs, ...) ride the same tick
+    # under their own settings, so disabling telemetry retention leaves them on.
+    from app.services import history_retention_service
+    by_table.update(history_retention_service.prune())
+    deleted = sum(by_table.values())
     if deleted:
-        logger.info('Telemetry retention pruned %s row(s): %s',
-                    deleted, report.get('deleted'))
-        return {'deleted': deleted, 'by_table': report.get('deleted')}
+        logger.info('Retention pruned %s row(s): %s', deleted, by_table)
+        return {'deleted': deleted, 'by_table': by_table}
     return None
 
 
