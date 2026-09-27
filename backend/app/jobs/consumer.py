@@ -125,7 +125,10 @@ class JobConsumer:
             QueueBusService.complete(GROUP_SLUG, QUEUE_SLUG, message['id'])
             stream.log('info', f'Job succeeded: {job.kind}')
             stream.close(Job.STATUS_SUCCEEDED)
-            self._emit(job, 'job.succeeded')
+            # A successful builtin tick is already on the Jobs page; a system
+            # event per tick only doubled the rows. Failures still emit.
+            if not job.is_builtin_tick:
+                self._emit(job, 'job.succeeded')
         except Exception as e:
             logger.error(f'Job {job_id} ({job.kind}) failed: {e}')
             try:

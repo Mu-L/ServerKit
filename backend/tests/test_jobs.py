@@ -353,6 +353,50 @@ class TestJobRetention:
         assert left == {('job', fresh_id), ('job', 'not-committed-yet'),
                         ('sandbox', 'gone-long-ago')}
 
+    def test_successful_builtin_ticks_are_kept_a_day(self, app):
+        # ~12k scheduler ticks a day each wrote a job, a queue message, log
+        # lines and an event, kept 14-30 days: ~500 MB on one box.
+        from datetime import datetime, timedelta
+
+        now = datetime.utcnow()
+
+        def _job(kind, status, hours, scheduled=True):
+            j = Job(kind=kind, status=status, scheduled_job_id=1 if scheduled else None,
+                    completed_at=now - timedelta(hours=hours),
+                    created_at=now - timedelta(hours=hours))
+            db.session.add(j)
+            return j
+
+        old_tick = _job('builtin.monitor_check', Job.STATUS_SUCCEEDED, 30)
+        fresh_tick = _job('builtin.monitor_check', Job.STATUS_SUCCEEDED, 2)
+        failed_tick = _job('builtin.monitor_check', Job.STATUS_FAILED, 30)
+        policy_run = _job('backup.policy.run', Job.STATUS_SUCCEEDED, 30)   # real work
+        manual_builtin = _job('builtin.health_check', Job.STATUS_SUCCEEDED, 30, scheduled=False)
+        db.session.commit()
+        ids = {n: j.id for n, j in {'old_tick': old_tick, 'fresh_tick': fresh_tick,
+                                    'failed_tick': failed_tick, 'policy_run': policy_run,
+                                    'manual_builtin': manual_builtin}.items()}
+
+        JobService.prune_terminal(retention_days=14)
+
+        survivors = {j.id for j in Job.query.all()}
+        assert ids['old_tick'] not in survivors
+        assert {ids['fresh_tick'], ids['failed_tick'], ids['policy_run'],
+                ids['manual_builtin']} <= survivors
+
+    def test_a_successful_tick_writes_no_system_event(self, app, monkeypatch):
+        emitted = []
+        monkeypatch.setattr(JobConsumer, '_emit',
+                            staticmethod(lambda job, event_type: emitted.append((job.kind, event_type))))
+        registry.register('builtin.t_tick', lambda job: {'ok': True})
+        registry.register('t.work', lambda job: {'ok': True})
+        for kind, scheduled in (('builtin.t_tick', 1), ('t.work', None)):
+            job = JobService.enqueue(kind)
+            job.scheduled_job_id = scheduled
+            db.session.commit()
+            _drain_once()
+        assert emitted == [('t.work', 'job.succeeded')]
+
     def test_retention_handler_respects_zero_disable(self, app, monkeypatch):
         from app.jobs import builtin_handlers
         from app.services.settings_service import SettingsService

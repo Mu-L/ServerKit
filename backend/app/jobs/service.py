@@ -163,9 +163,21 @@ class JobService:
         if not ids:
             return 0
         from app.models.run_log import RunLogEntry
+        from app.queue_bus.models import QueueMessage
         (RunLogEntry.query
          .filter(RunLogEntry.run_kind == 'job', RunLogEntry.run_id.in_(ids))
          .delete(synchronize_session=False))
+        # The job's completed queue message goes with it; left behind it would
+        # wait for the (longer) telemetry window.
+        message_ids = [row[0] for row in (
+            db.session.query(Job.queue_message_id)
+            .filter(Job.id.in_(ids), Job.queue_message_id.isnot(None))
+            .all())]
+        if message_ids:
+            (QueueMessage.query
+             .filter(QueueMessage.id.in_(message_ids),
+                     QueueMessage.status == QueueMessage.STATUS_COMPLETED)
+             .delete(synchronize_session=False))
         return (Job.query
                 .filter(Job.id.in_(ids))
                 .delete(synchronize_session=False))
@@ -214,13 +226,20 @@ class JobService:
             ((Job.STATUS_FAILED,),
              now - timedelta(days=retention_days * 3)),
         ]
+        # Successful builtin ticks go after a day (see Job.is_builtin_tick).
+        tick = ((Job.STATUS_SUCCEEDED,),
+                now - timedelta(hours=Job.TICK_RETENTION_HOURS),
+                (Job.scheduled_job_id.isnot(None),
+                 Job.kind.startswith(Job.BUILTIN_KIND_PREFIX)))
+        specs = [tick] + [(statuses, cutoff, ()) for statuses, cutoff in specs]
         deleted = 0
-        for statuses, cutoff in specs:
+        for statuses, cutoff, extra in specs:
             while True:
                 ids = [row[0] for row in (
                     db.session.query(Job.id)
                     .filter(Job.status.in_(statuses))
                     .filter(age < cutoff)
+                    .filter(*extra)
                     .limit(batch_size)
                     .all())]
                 if not ids:
