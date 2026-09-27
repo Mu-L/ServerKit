@@ -32,7 +32,9 @@ The checks, in the order they run (a broken compose makes the rest meaningless):
 """
 
 import logging
+import os
 import re
+import shutil
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Set
 
@@ -49,6 +51,15 @@ KIND_COMPOSE_INVALID = 'compose_invalid'
 KIND_IMAGE_UNRESOLVED = 'image_unresolved'
 KIND_BUILD_FAILED = 'build_failed'
 KIND_PORT_CONFLICT = 'port_conflict'
+KIND_DISK_LOW = 'disk_low'
+
+# Free space a pull/build needs (plan 85 D4). Under the floor the deploy is
+# refused — images cannot fit and a full disk also stops the panel's database
+# writing. Under the warning line it proceeds with a warning.
+DISK_BLOCK_BYTES = 512 * 1024 ** 2
+DISK_WARN_BYTES = 2 * 1024 ** 3
+DISK_WARN_FRACTION = 0.05
+DOCKER_DATA_ROOT = '/var/lib/docker'
 
 LogFn = Optional[Callable[[str], None]]
 
@@ -157,6 +168,11 @@ def preflight_compose_project(project_path: str, compose_file: str = None, *,
     what = label or (compose_file or 'docker-compose.yml')
     _emit(log, f'Preflight: validating {what} before stopping the running containers')
 
+    # 0. free disk ------------------------------------------------------------
+    _check_disk(project_path, result, log)
+    if not result.ok:
+        return result
+
     # 1. compose validity -----------------------------------------------------
     try:
         validation = DockerService.validate_compose_file(project_path, compose_file)
@@ -195,6 +211,37 @@ def preflight_compose_project(project_path: str, compose_file: str = None, *,
 
     _emit(log, 'Preflight passed — safe to switch over')
     return result
+
+
+def _disk_usage(path: str):
+    return shutil.disk_usage(path)
+
+
+def _check_disk(project_path: str, result: PreflightResult, log: LogFn = None) -> None:
+    """Refuse a deploy the disk cannot hold; warn when it is getting close.
+    Measured where images land (Docker's data root), else the project.
+    Adds a finding only when space is short, so a healthy disk is silent."""
+    from app.services.disk_reclaim_service import human_bytes
+    path = DOCKER_DATA_ROOT if os.path.isdir(DOCKER_DATA_ROOT) else project_path
+    try:
+        du = _disk_usage(path)
+    except OSError:
+        return
+    warn_at = max(DISK_WARN_BYTES, int(du.total * DISK_WARN_FRACTION))
+    if du.free < DISK_BLOCK_BYTES:
+        result.add(PreflightFinding(
+            kind=KIND_DISK_LOW,
+            message=(f'Only {human_bytes(du.free)} free on {path}: not enough to pull '
+                     'or build images. Free up space from Storage, then deploy again.'),
+            detail=f'free={du.free} total={du.total}',
+        ), log)
+    elif du.free < warn_at:
+        result.add(PreflightFinding(
+            kind=KIND_DISK_LOW, severity=ADVISORY,
+            message=(f'Only {human_bytes(du.free)} free on {path}; a large build may '
+                     'fail. Storage shows what is using the disk.'),
+            detail=f'free={du.free} total={du.total}',
+        ), log)
 
 
 def _compose_config(project_path: str, compose_file: str = None) -> Optional[Dict[str, Any]]:

@@ -418,3 +418,36 @@ def test_an_unreadable_project_is_unknown_not_empty(app, monkeypatch):
     monkeypatch.setattr(DockerService, 'run_compose', classmethod(
         lambda cls, cmd, cwd=None, **kw: {'success': True, 'output': '', 'stderr': '', 'returncode': 0}))
     assert preflight.published_host_ports('/srv/app') == set()
+
+
+# ── plan 85 D4: free disk ───────────────────────────────────────────────────
+
+def _disk(monkeypatch, free, total=25 * 1024 ** 3):
+    from collections import namedtuple
+    Usage = namedtuple('Usage', 'total used free')
+    monkeypatch.setattr(preflight, '_disk_usage', lambda path: Usage(total, total - free, free))
+
+
+def test_a_nearly_full_disk_blocks_before_anything_stops(monkeypatch):
+    _disk(monkeypatch, free=100 * 1024 ** 2)
+    monkeypatch.setattr(preflight.DockerService, 'validate_compose_file',
+                        lambda *a, **k: pytest.fail('must stop before compose validation'))
+    result = preflight.preflight_compose_project('/tmp/app')
+    assert not result.ok
+    assert result.blockers[0].kind == preflight.KIND_DISK_LOW
+    assert 'Storage' in result.error
+
+
+def test_low_disk_is_a_warning_not_a_blocker(monkeypatch):
+    _disk(monkeypatch, free=1 * 1024 ** 3)
+    result = preflight.PreflightResult()
+    preflight._check_disk('/tmp/app', result)
+    assert result.ok
+    assert [f.severity for f in result.findings] == [preflight.ADVISORY]
+
+
+def test_a_healthy_disk_adds_nothing(monkeypatch):
+    _disk(monkeypatch, free=20 * 1024 ** 3)
+    result = preflight.PreflightResult()
+    preflight._check_disk('/tmp/app', result)
+    assert result.findings == []
