@@ -1,3 +1,4 @@
+import logging
 import os
 import subprocess
 import re
@@ -6,6 +7,8 @@ from pathlib import Path
 
 from app.utils.system import (ServiceControl, is_command_available,
                              run_privileged, write_privileged_file)
+
+logger = logging.getLogger(__name__)
 
 
 def _auto_capture_vhost(name, action):
@@ -376,6 +379,35 @@ log_format serverkit_timed '$remote_addr - $remote_user [$time_local] "$request"
                            'rt=$request_time urt="$upstream_response_time" '
                            'cs=$upstream_cache_status h=$host';
 """
+
+    # ==================== COMPRESSION (plan 86 §B1) ====================
+    # gzip (and brotli when the module is loaded) for every site, as one
+    # http-level conf.d snippet. Stock configs already set some of these —
+    # Debian's nginx.conf ships `gzip on;` — and a repeated http-level
+    # directive is fatal to `nginx -t`, so the snippet only carries the
+    # directives the running config does not already set (read from `nginx -T`).
+    COMPRESSION_CONF_NAME = 'serverkit-compression.conf'
+    # text/html is always compressed by nginx; listing it again only warns.
+    COMPRESSION_TYPES = (
+        'text/plain text/css text/xml text/javascript application/javascript '
+        'application/json application/xml application/rss+xml '
+        'application/atom+xml image/svg+xml application/wasm '
+        'font/ttf font/otf application/vnd.ms-fontobject'
+    )
+    GZIP_DIRECTIVES = (
+        ('gzip', 'on'),
+        ('gzip_vary', 'on'),
+        ('gzip_proxied', 'any'),
+        ('gzip_comp_level', '5'),
+        ('gzip_min_length', '1024'),
+        ('gzip_types', COMPRESSION_TYPES),
+    )
+    BROTLI_DIRECTIVES = (
+        ('brotli', 'on'),
+        ('brotli_comp_level', '5'),
+        ('brotli_min_length', '1024'),
+        ('brotli_types', COMPRESSION_TYPES),
+    )
 
     # ==================== MICRO-CACHE (task #21) ====================
     # Opt-in per-site micro-cache: a very short (10s) full-page cache in front
@@ -796,6 +828,95 @@ location /p/ {{
             return {'success': False, 'error': str(e)}
 
     @classmethod
+    def _http_level_directives(cls, dump: str, skip_file: str) -> set:
+        """Directive names set at http level in an ``nginx -T`` dump.
+
+        ``nginx -T`` prints each file after a ``# configuration file <path>:``
+        header. In the main nginx.conf, http level is depth 1 inside
+        ``http {}``; every other file is included from the http block (conf.d)
+        or a server (sites), so its depth-0 directives are the http-level
+        ones. ``skip_file`` (our own snippet) is ignored so a rewrite never
+        mistakes its own lines for someone else's.
+        """
+        found = set()
+        current = None
+        depth = 0
+        in_http = False
+        for raw in dump.splitlines():
+            header = re.match(r'^# configuration file (.+):$', raw.strip())
+            if header:
+                current = header.group(1)
+                depth = 0
+                in_http = False
+                continue
+            if current is None or current == skip_file:
+                continue
+            line = raw.split('#', 1)[0].strip()
+            if not line:
+                continue
+            is_main = current.endswith('/nginx.conf')
+            http_level = (depth == 1 and in_http) if is_main else depth == 0
+            name = line.split(None, 1)[0].rstrip(';{')
+            if http_level and line.endswith(';'):
+                found.add(name)
+            if is_main and depth == 0 and name == 'http' and '{' in line:
+                in_http = True
+            depth += line.count('{') - line.count('}')
+            if is_main and depth == 0:
+                in_http = False
+        return found
+
+    @classmethod
+    def render_compression_snippet(cls, dump: str, conf_path: str,
+                                   nginx_v: str = '') -> str:
+        """The snippet for this box. When the running config already sets
+        everything it is comments only: still written, so the "already
+        handled" check stays a file-exists test instead of an ``nginx -T``
+        on every vhost write."""
+        present = cls._http_level_directives(dump, conf_path)
+        brotli = ('ngx_http_brotli_filter_module' in dump
+                  or 'brotli' in (nginx_v or '').lower())
+        wanted = list(cls.GZIP_DIRECTIVES)
+        if brotli:
+            wanted += list(cls.BROTLI_DIRECTIVES)
+        lines = [f'{name} {value};' for name, value in wanted if name not in present]
+        kept = sorted(name for name, _ in wanted if name in present)
+        header = ['# ServerKit compression (auto-generated; do not edit).']
+        if kept:
+            header.append('# Already set elsewhere, left alone: ' + ', '.join(kept))
+        return '\n'.join(header + lines) + '\n'
+
+    @classmethod
+    def ensure_compression(cls) -> Dict:
+        """Write the compression snippet once, best-effort (plan 86 §B1).
+
+        Skips when the snippet exists. A snippet that fails ``nginx -t`` is
+        removed again, so compression can never take the web server down —
+        it just stays off, and the error says why.
+        """
+        conf_path = os.path.join(cls.NGINX_CONF_DIR, 'conf.d', cls.COMPRESSION_CONF_NAME)
+        if os.path.isfile(conf_path):
+            return {'success': True, 'changed': False, 'path': conf_path}
+        try:
+            dump = run_privileged([cls.NGINX_BIN, '-T'], timeout=30)
+            if dump.returncode != 0:
+                return {'success': False, 'error': (dump.stderr or 'nginx -T failed').strip()}
+            version = run_privileged([cls.NGINX_BIN, '-V'], timeout=30)
+            snippet = cls.render_compression_snippet(
+                dump.stdout or '', conf_path, (version.stderr or '') + (version.stdout or ''))
+            written = write_privileged_file(conf_path, snippet)
+            if not written['success']:
+                return {'success': False, 'error': written['error']}
+            test = cls.test_config()
+            if not test['success']:
+                run_privileged(['rm', '-f', conf_path])
+                return {'success': False,
+                        'error': f"compression snippet rejected: {test.get('message') or test.get('error')}"}
+            return {'success': True, 'changed': True, 'path': conf_path}
+        except Exception as e:  # noqa: BLE001 - best-effort, never blocks a vhost
+            return {'success': False, 'error': str(e)}
+
+    @classmethod
     def purge_micro_cache(cls) -> Dict:
         """Wipe the shared micro-cache directory contents. Linux-only.
 
@@ -948,6 +1069,12 @@ location /p/ {{
             if not fmt.get('success'):
                 return {'success': False,
                         'error': f"log format setup failed: {fmt.get('error')}"}
+
+        # Compression is global and best-effort: a box where it can't be set
+        # up still gets its vhost.
+        compression = cls.ensure_compression()
+        if not compression.get('success'):
+            logger.info('nginx compression not configured: %s', compression.get('error'))
 
         available_path = os.path.join(cls.SITES_AVAILABLE, name)
         enabled_path = os.path.join(cls.SITES_ENABLED, name)

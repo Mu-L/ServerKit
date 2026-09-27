@@ -127,3 +127,38 @@ def test_the_harness_itself_rejects_garbage(tmp_path):
     """A wrapper that passed everything would make the suite vacuous."""
     proc = _nginx_t(tmp_path, 'server { this is not nginx syntax }')
     assert proc.returncode != 0
+
+
+@pytest.mark.parametrize('stock_http', [
+    '',                                   # RHEL-shaped: no gzip at all
+    '    gzip on;\n',                     # Debian-shaped: gzip on in nginx.conf
+    '    gzip on;\n    gzip_types text/plain;\n    gzip_vary on;\n',
+])
+def test_compression_snippet_round_trips_through_real_nginx(tmp_path, stock_http):
+    """Render the snippet from the REAL `nginx -T` of a stock-shaped config,
+    include it, and the result must still pass `nginx -t` — a repeated
+    http-level gzip directive is exactly what would fail here (plan 86 §B1)."""
+    snippet_path = tmp_path / 'serverkit-compression.conf'
+    snippet_path.write_text('')
+    main = tmp_path / 'nginx.conf'
+    main.write_text(
+        f'pid {tmp_path}/nginx.pid;\n'
+        f'error_log {tmp_path}/error.log;\n'
+        'events {}\n'
+        'http {\n'
+        f'    access_log {tmp_path}/access.log;\n'
+        + stock_http
+        + f'    include {snippet_path};\n'
+        '}\n')
+    dump = subprocess.run([NGINX, '-T', '-c', str(main)],
+                          capture_output=True, text=True)
+    assert dump.returncode == 0, dump.stderr
+
+    snippet = NginxService.render_compression_snippet(
+        dump.stdout, str(snippet_path))
+    snippet_path.write_text(snippet)
+
+    proc = subprocess.run([NGINX, '-t', '-c', str(main)],
+                          capture_output=True, text=True)
+    assert proc.returncode == 0, f'{snippet}\n{proc.stderr}'
+    assert 'gzip_types' in snippet or 'gzip_types' in stock_http

@@ -70,6 +70,7 @@ class TestWriteVhostDeclaresTheFormat:
         conf = tmp_path / 'nginx'
         for d in ('sites-available', 'sites-enabled', 'conf.d'):
             (conf / d).mkdir(parents=True)
+        (conf / 'conf.d' / NginxService.COMPRESSION_CONF_NAME).write_text('# set')
         monkeypatch.setattr(NginxService, 'NGINX_CONF_DIR', str(conf))
         monkeypatch.setattr(NginxService, 'SITES_AVAILABLE', str(conf / 'sites-available'))
         monkeypatch.setattr(NginxService, 'SITES_ENABLED', str(conf / 'sites-enabled'))
