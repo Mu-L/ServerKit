@@ -12,6 +12,7 @@ behavior — cadence handling, per-task de-dup, idempotency — is unchanged; on
 the trigger moved from a bare thread to the unified job system.
 """
 import logging
+import os
 
 from app.jobs.registry import register
 
@@ -371,9 +372,20 @@ def run_telemetry_retention():
     from app.services import history_retention_service
     by_table.update(history_retention_service.prune())
     deleted = sum(by_table.values())
-    if deleted:
-        logger.info('Retention pruned %s row(s): %s', deleted, by_table)
-        return {'deleted': deleted, 'by_table': by_table}
+    result = {'deleted': deleted, 'by_table': by_table} if deleted else {}
+    if os.name != 'nt':
+        # Files on the same tick: old update/build logs, and the previous
+        # version's install once the current one has been live a day.
+        from app.services import log_limits_service, slot_retention_service
+        files = {k: v for k, v in log_limits_service.prune_files().items() if v}
+        if files:
+            result['files'] = files
+        slot = slot_retention_service.remove_previous_slot()
+        if slot:
+            result['previous_slot'] = slot
+    if result:
+        logger.info('Retention pruned: %s', result)
+        return result
     return None
 
 

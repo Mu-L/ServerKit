@@ -64,6 +64,26 @@ class SettingsService:
             'type': 'integer',
             'description': 'Days to retain telemetry rows (queue messages, system events, API usage logs) before pruning. Without this the database grows ~11 MB/day forever. 0 disables pruning.'
         },
+        'history.retention_days': {
+            'value': 90,
+            'type': 'integer',
+            'description': 'Days to retain finished history (error logs, notifications, deployment jobs, cron runs, webhook and event deliveries, sandbox runs) before pruning. 0 disables pruning.'
+        },
+        'storage.docker_log_max_size': {
+            'value': '50m',
+            'type': 'string',
+            'description': 'Default size cap for each container log file (Docker json-file max-size, 3 files kept). Takes effect for containers created after Docker restarts.'
+        },
+        'storage.previous_slot_hours': {
+            'value': 24,
+            'type': 'integer',
+            'description': 'Hours after a healthy update before the previous version\'s install is removed. Rollback within that window stays instant. 0 keeps it until the next update.'
+        },
+        'storage.size_profile_applied': {
+            'value': False,
+            'type': 'boolean',
+            'description': 'Set once the disk-size defaults have been applied to this install.'
+        },
         'onboarding_use_cases': {
             'value': [],
             'type': 'json',

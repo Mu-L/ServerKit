@@ -259,6 +259,14 @@ def create_app(config_name=None):
         from app.services.settings_service import SettingsService
         SettingsService.initialize_defaults()
         SettingsService.migrate_legacy_roles()
+        if not app.config.get('TESTING'):
+            # Size-aware retention defaults, once per install (plan 85 §C).
+            # Skipped under test: the result would depend on the test host's disk.
+            try:
+                from app.services import storage_profile_service
+                storage_profile_service.apply_to_existing()
+            except Exception as e:
+                app.logger.warning(f'Storage profile not applied: {e}')
 
         # Encrypt any legacy plaintext provider secrets at rest (idempotent —
         # DNS-provider api keys and storage credentials predate encryption).
@@ -445,6 +453,9 @@ def create_app(config_name=None):
             MetadataGuardService.register_jobs()
             if not app.config.get('TESTING'):
                 MetadataGuardService.ensure()  # converge the metadata egress rule (no-op when unsupported)
+                # Bound the log files the panel writes or causes (plan 85 A5).
+                from app.services import log_limits_service
+                log_limits_service.converge()
             from app.services.speed_test_service import SpeedTestService
             SpeedTestService.register_jobs()
             from app.services import login_link_service
