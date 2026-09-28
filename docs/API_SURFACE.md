@@ -13,6 +13,7 @@ Regenerate (backend/):
 - `DELETE /ai/conversations/{conversation_id}`
 - `DELETE /api-keys/{key_id}`
 - `DELETE /apps/{app_id}`
+- `DELETE /apps/{app_id}/attachments/{attachment_id}`
 - `DELETE /apps/{app_id}/backups/{run_id}`
 - `DELETE /apps/{app_id}/db-snapshots/{snapshot_id}`
 - `DELETE /apps/{app_id}/env/clear`
@@ -157,8 +158,10 @@ Regenerate (backend/):
 - `GET /api-keys/scopes`
 - `GET /api-keys/{key_id}`
 - `GET /apps`
+- `GET /apps/attachments/storage-services`
 - `GET /apps/p/{slug}`
 - `GET /apps/{app_id}`
+- `GET /apps/{app_id}/attachments`
 - `GET /apps/{app_id}/backup-policy`
 - `GET /apps/{app_id}/backups`
 - `GET /apps/{app_id}/compose-services`
@@ -770,6 +773,7 @@ Regenerate (backend/):
 - `POST /apps/scale-sweep`
 - `POST /apps/sweep-idle`
 - `POST /apps/upload`
+- `POST /apps/{app_id}/attachments/storage`
 - `POST /apps/{app_id}/backups`
 - `POST /apps/{app_id}/backups/{run_id}/restore`
 - `POST /apps/{app_id}/backups/{run_id}/verify`

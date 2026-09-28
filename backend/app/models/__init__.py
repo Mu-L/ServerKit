@@ -83,6 +83,7 @@ from app.models.managed_database_user import ManagedDatabaseUser
 from app.models.site_import import SiteImport
 from app.models.site_bandwidth import SiteBandwidthDaily
 from app.models.app_request_metric import AppRequestMetric
+from app.models.app_attachment import AppAttachment
 from app.models.cron_run import CronRun
 from app.models.fleet_doctor_result import FleetDoctorResult
 from app.models.server_survey import ServerSurvey
@@ -140,6 +141,7 @@ __all__ = [
     'CronRun',
     'SiteBandwidthDaily',
     'AppRequestMetric',
+    'AppAttachment',
     'FleetDoctorResult',
     'ServerSurvey',
     'DnsCutoverSnapshot',
