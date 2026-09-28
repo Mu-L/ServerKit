@@ -100,7 +100,6 @@ class EnvReferenceResolver:
                          prop: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
         if not service_name or not prop:
             return None, 'missing service/property'
-        project_id = getattr(app, 'project_id', None)
 
         # db sibling first (ManagedDatabase by name within the workspace)
         from app.models.managed_database import ManagedDatabase
@@ -108,19 +107,35 @@ class EnvReferenceResolver:
         if managed is not None:
             return cls._db_property(managed, prop)
 
-        # app sibling (Application by name within the project). Name-keyed, so a
-        # tombstone sharing the name would shadow the live app and the wrong
-        # app's host/port/secrets would get baked into a live container's env.
+        sibling = cls.find_sibling_app(app, service_name)
+        if sibling is not None:
+            # An installed engine / connection-declaring template offers real
+            # connection properties (redis:// url, S3 endpoint...) reachable
+            # over the shared network (plan 86 §C1); a plain app keeps the
+            # generic host/port/url.
+            from app.services.service_connection_service import ServiceConnectionService
+            if ServiceConnectionService.is_connectable(sibling):
+                return ServiceConnectionService.resolve(sibling, prop)
+            return cls._app_property(sibling, service_name, prop)
+
+        return None, f'service `{service_name}` not found'
+
+    @classmethod
+    def find_sibling_app(cls, app, service_name: Optional[str]):
+        """The live Application ``service_name`` names: in ``app``'s project
+        first, then anywhere. Name-keyed, so live rows only — a tombstone
+        sharing the name would shadow the live app and the wrong app's
+        host/port/secrets would get baked into a live container's env."""
+        if not service_name:
+            return None
         from app.models.application import Application
+        project_id = getattr(app, 'project_id', None)
         sibling = None
         if project_id is not None:
             sibling = Application.query_active().filter_by(project_id=project_id, name=service_name).first()
         if sibling is None:
             sibling = Application.query_active().filter_by(name=service_name).first()
-        if sibling is not None:
-            return cls._app_property(sibling, service_name, prop)
-
-        return None, f'service `{service_name}` not found'
+        return sibling
 
     @classmethod
     def _db_property(cls, managed, prop: str) -> Tuple[Optional[str], Optional[str]]:

@@ -25,6 +25,8 @@ import os
 
 import yaml
 
+from app.services.service_connection_service import SHARED_NETWORK
+
 logger = logging.getLogger(__name__)
 
 
@@ -191,21 +193,50 @@ class ComposeEnvService:
             if not (isinstance(svc, dict) and svc.get('restart')):
                 services_block.setdefault(name, {})['restart'] = 'unless-stopped'
 
+        # Shared service network (plan 86 §C1): an app that offers connection
+        # properties (Redis, MinIO...) or consumes one through `fromService`
+        # joins SHARED_NETWORK so the two can reach each other by container
+        # name. `default` is listed too — naming any network on a service
+        # otherwise drops its implicit default one. Services with a
+        # `network_mode` can't join networks and are left alone.
+        joined = cls._shared_network_services(app, services)
+        for name in joined:
+            services_block.setdefault(name, {})['networks'] = {
+                'default': {}, SHARED_NETWORK: {}}
+
         if not services_block:
             # Nothing to inject → no override should exist.
             return {'applies': True, 'path': override_path, 'content': None}
         override = {'services': services_block}
+        if joined:
+            override['networks'] = {
+                SHARED_NETWORK: {'external': True, 'name': SHARED_NETWORK}}
 
         header = (
             '# Managed by ServerKit — do not edit.\n'
             '# Injects the app\'s effective environment (shared variable groups\n'
             '# under the app\'s own local env vars) into every compose service,\n'
-            '# plus any per-app resource limits on the primary service and a\n'
-            '# `restart: unless-stopped` default for services without one.\n'
+            '# plus any per-app resource limits on the primary service, a\n'
+            '# `restart: unless-stopped` default for services without one, and\n'
+            '# the shared service network when the app offers or uses one.\n'
             '# Regenerated on every deploy; delete it and it will be recreated.\n'
         )
         content = header + yaml.safe_dump(override, default_flow_style=False, sort_keys=True)
         return {'applies': True, 'path': override_path, 'content': content}
+
+    @staticmethod
+    def _shared_network_services(app, services):
+        """Service names that join SHARED_NETWORK, or [] when the app neither
+        offers nor consumes a connectable service."""
+        try:
+            from app.services.service_connection_service import ServiceConnectionService
+            if not ServiceConnectionService.needs_shared_network(app):
+                return []
+        except Exception as e:  # noqa: BLE001 - never block the overlay
+            logger.debug('shared-network check failed for app %s: %s', app.id, e)
+            return []
+        return [name for name, svc in services.items()
+                if not (isinstance(svc, dict) and svc.get('network_mode'))]
 
     @classmethod
     def refresh_for_project(cls, project_path, compose_file=None):
@@ -224,6 +255,10 @@ class ComposeEnvService:
                 return None
             with open(spec['path'], 'w', encoding='utf-8') as f:
                 f.write(spec['content'])
+            if SHARED_NETWORK in spec['content']:
+                # External networks must exist before `compose up`.
+                from app.services.docker_service import DockerService
+                DockerService.ensure_network(SHARED_NETWORK)
             return spec['path']
         except Exception as e:  # pragma: no cover - defensive
             logger.warning('compose env overlay refresh failed for %s: %s', project_path, e)
