@@ -15,23 +15,6 @@ def get_proxy_rules(domain):
     return jsonify(result)
 
 
-@nginx_advanced_bp.route('/proxy', methods=['POST'])
-@jwt_required()
-def create_proxy():
-    user = get_current_user()
-    if not user or not user.is_admin:
-        return jsonify({'error': 'Admin access required'}), 403
-
-    data = request.get_json()
-    if not data or 'domain' not in data:
-        return jsonify({'error': 'domain required'}), 400
-
-    result = NginxAdvancedService.create_reverse_proxy(data)
-    if 'error' in result:
-        return jsonify(result), 400
-    return jsonify(result), 201
-
-
 @nginx_advanced_bp.route('/test', methods=['POST'])
 @jwt_required()
 def test_config():
@@ -78,9 +61,3 @@ def get_logs(domain):
     lines = request.args.get('lines', 100, type=int)
     result = NginxAdvancedService.get_vhost_logs(domain, log_type, lines)
     return jsonify(result)
-
-
-@nginx_advanced_bp.route('/lb-methods', methods=['GET'])
-@jwt_required()
-def get_lb_methods():
-    return jsonify({'methods': NginxAdvancedService.get_load_balancing_methods()})

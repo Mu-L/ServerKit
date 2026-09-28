@@ -516,6 +516,29 @@ class DockerService:
             return []
 
         containers = cls.compose_ps(root_path, compose_file=compose_file)
+        app_id = cls._app_attr(app, 'id')
+        if not containers and app_id and cls._app_attr(app, 'buildpack_type'):
+            # A build-pack app is not a compose project: its deploy runs
+            # `serverkit-app-<id>` plus one `serverkit-app-<id>-<process>` per
+            # Procfile worker (plan 86 §C3). Anchored so app 5 never lists 50.
+            listed = cls.run(['ps', '-a', '--filter', f'name=^serverkit-app-{app_id}$',
+                              '--filter', f'name=^serverkit-app-{app_id}-',
+                              '--format', '{{json .}}'], timeout=30)
+            prefix = f'serverkit-app-{app_id}-'
+            result = []
+            for line in (listed.get('output') or '').splitlines() if listed.get('success') else []:
+                try:
+                    c = json.loads(line)
+                except ValueError:
+                    continue
+                name = c.get('Names') or ''
+                result.append({
+                    'id': c.get('ID'),
+                    'name': name,
+                    'service': name[len(prefix):] if name.startswith(prefix) else 'web',
+                    'state': (c.get('State') or '').lower(),
+                })
+            return sorted(result, key=lambda c: (c['service'] != 'web', c['service']))
         result = []
         for c in containers:
             result.append({

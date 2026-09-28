@@ -3,7 +3,7 @@
   "policy": "Exact reviewed inventory of direct persistence, subprocess, and filesystem mutation calls in Flask API controllers. New calls are forbidden; remove entries as controllers delegate to services.",
   "counts": {
     "filesystem": 8,
-    "persistence": 487
+    "persistence": 483
   },
   "owners": {
     "api/admin.py": {
@@ -273,7 +273,6 @@
     "api/apps.py::delete_app_db_snapshot::persistence::DatabaseSnapshot.query.filter_by(id=snapshot_id, site_id=site.id).first()::1",
     "api/apps.py::delete_app_db_snapshot::persistence::db.session.commit()::1",
     "api/apps.py::delete_app_db_snapshot::persistence::db.session.delete(snapshot)::1",
-    "api/apps.py::evaluate_scale::persistence::Application.query_active().filter_by(id=app_id).first()::1",
     "api/apps.py::get_app::persistence::Application.query_active().filter_by(id=app_id).first()::1",
     "api/apps.py::get_app_containers::persistence::Application.query_active().filter_by(id=app_id).first()::1",
     "api/apps.py::get_app_containers::persistence::User.query.get(current_user_id)::1",
@@ -297,7 +296,6 @@
     "api/apps.py::get_container_logs::persistence::User.query.get(current_user_id)::1",
     "api/apps.py::get_linked_apps::persistence::Application.query_active().filter_by(id=app_id).first()::1",
     "api/apps.py::get_linked_apps::persistence::User.query.get(current_user_id)::1",
-    "api/apps.py::get_scale_policy::persistence::Application.query_active().filter_by(id=app_id).first()::1",
     "api/apps.py::get_sleep_policy::persistence::Application.query_active().filter_by(id=app_id).first()::1",
     "api/apps.py::grant_app_access::persistence::Application.query_active().filter_by(id=app_id).first()::1",
     "api/apps.py::grant_app_access::persistence::User.query.get(grantee_id)::1",
@@ -318,7 +316,6 @@
     "api/apps.py::rollback_app_version::persistence::Application.query_active().filter_by(id=app_id).first()::1",
     "api/apps.py::rollback_app_version::persistence::User.query.get(current_user_id)::1",
     "api/apps.py::rollback_app_version::persistence::db.session.commit()::1",
-    "api/apps.py::scale_app::persistence::Application.query_active().filter_by(id=app_id).first()::1",
     "api/apps.py::set_app_workspace::persistence::Application.query_active().filter_by(id=app_id).first()::1",
     "api/apps.py::set_app_workspace::persistence::Workspace.query.get(target)::1",
     "api/apps.py::set_app_workspace::persistence::db.session.commit()::1",
@@ -341,7 +338,6 @@
     "api/apps.py::update_environment::persistence::Application.query_active().filter_by(id=app_id).first()::1",
     "api/apps.py::update_environment::persistence::User.query.get(current_user_id)::1",
     "api/apps.py::update_environment::persistence::db.session.commit()::1",
-    "api/apps.py::update_scale_policy::persistence::Application.query_active().filter_by(id=app_id).first()::1",
     "api/apps.py::update_sleep_policy::persistence::Application.query_active().filter_by(id=app_id).first()::1",
     "api/apps.py::upload_app_archive::filesystem::os.makedirs(temp_dir, exist_ok=True)::1",
     "api/apps.py::upload_app_archive::filesystem::os.remove(zippath)::1",

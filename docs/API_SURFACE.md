@@ -13,6 +13,7 @@ Regenerate (backend/):
 - `DELETE /ai/conversations/{conversation_id}`
 - `DELETE /api-keys/{key_id}`
 - `DELETE /apps/{app_id}`
+- `DELETE /apps/{app_id}/attachments/{attachment_id}`
 - `DELETE /apps/{app_id}/backups/{run_id}`
 - `DELETE /apps/{app_id}/db-snapshots/{snapshot_id}`
 - `DELETE /apps/{app_id}/env/clear`
@@ -157,8 +158,10 @@ Regenerate (backend/):
 - `GET /api-keys/scopes`
 - `GET /api-keys/{key_id}`
 - `GET /apps`
+- `GET /apps/attachments/services`
 - `GET /apps/p/{slug}`
 - `GET /apps/{app_id}`
+- `GET /apps/{app_id}/attachments`
 - `GET /apps/{app_id}/backup-policy`
 - `GET /apps/{app_id}/backups`
 - `GET /apps/{app_id}/compose-services`
@@ -173,14 +176,15 @@ Regenerate (backend/):
 - `GET /apps/{app_id}/env/history`
 - `GET /apps/{app_id}/env/{key}`
 - `GET /apps/{app_id}/grants`
+- `GET /apps/{app_id}/hints`
 - `GET /apps/{app_id}/linked`
 - `GET /apps/{app_id}/logs`
+- `GET /apps/{app_id}/pooler`
 - `GET /apps/{app_id}/previews`
 - `GET /apps/{app_id}/previews/settings`
 - `GET /apps/{app_id}/private-url`
 - `GET /apps/{app_id}/related`
 - `GET /apps/{app_id}/resources`
-- `GET /apps/{app_id}/scale-policy`
 - `GET /apps/{app_id}/sleep-policy`
 - `GET /apps/{app_id}/snapshots`
 - `GET /apps/{app_id}/snapshots/{snap_id}`
@@ -210,6 +214,7 @@ Regenerate (backend/):
 - `GET /backups/target-types`
 - `GET /bandwidth/apps`
 - `GET /bandwidth/apps/{app_id}`
+- `GET /bandwidth/apps/{app_id}/requests`
 - `GET /builds/apps/{app_id}/build-config`
 - `GET /builds/apps/{app_id}/build-logs`
 - `GET /builds/apps/{app_id}/build-logs/{timestamp}`
@@ -239,6 +244,7 @@ Regenerate (backend/):
 - `GET /databases/docker/app/{app_id}`
 - `GET /databases/docker/databases`
 - `GET /databases/docker/{container}/databases`
+- `GET /databases/docker/{container}/insights`
 - `GET /databases/docker/{container}/processes`
 - `GET /databases/docker/{container}/{database}/tables`
 - `GET /databases/engines`
@@ -405,7 +411,6 @@ Regenerate (backend/):
 - `GET /monitors/{monitor_id}`
 - `GET /monitors/{monitor_id}/history`
 - `GET /monitors/{monitor_id}/uptime`
-- `GET /nginx/advanced/lb-methods`
 - `GET /nginx/advanced/logs/{domain}`
 - `GET /nginx/advanced/proxy/{domain}`
 - `GET /nginx/sites`
@@ -602,7 +607,6 @@ Regenerate (backend/):
 - `GET /services/{app_id}/logs`
 - `GET /services/{app_id}/related`
 - `GET /services/{app_id}/resources`
-- `GET /services/{app_id}/scale-policy`
 - `GET /services/{app_id}/sleep-policy`
 - `GET /services/{app_id}/status`
 - `GET /services/{app_id}/versions`
@@ -766,9 +770,9 @@ Regenerate (backend/):
 - `POST /apps/htaccess-convert`
 - `POST /apps/manual`
 - `POST /apps/move-to-project`
-- `POST /apps/scale-sweep`
 - `POST /apps/sweep-idle`
 - `POST /apps/upload`
+- `POST /apps/{app_id}/attachments/{kind}`
 - `POST /apps/{app_id}/backups`
 - `POST /apps/{app_id}/backups/{run_id}/restore`
 - `POST /apps/{app_id}/backups/{run_id}/verify`
@@ -787,8 +791,6 @@ Regenerate (backend/):
 - `POST /apps/{app_id}/private-url/regenerate`
 - `POST /apps/{app_id}/restart`
 - `POST /apps/{app_id}/rollback`
-- `POST /apps/{app_id}/scale`
-- `POST /apps/{app_id}/scale/evaluate`
 - `POST /apps/{app_id}/sleep`
 - `POST /apps/{app_id}/snapshots/{snap_id}/restore`
 - `POST /apps/{app_id}/start`
@@ -848,6 +850,7 @@ Regenerate (backend/):
 - `POST /dashboards`
 - `POST /dashboards/`
 - `POST /dashboards/{board_id}/reset`
+- `POST /databases/docker/{container}/insights/pg-stat-statements`
 - `POST /databases/docker/{container}/processes/{pid}/kill`
 - `POST /databases/docker/{container}/{database}/query`
 - `POST /databases/engines`
@@ -1012,7 +1015,6 @@ Regenerate (backend/):
 - `POST /monitors/{monitor_id}/check`
 - `POST /monitors/{monitor_id}/pause`
 - `POST /nginx/advanced/diff`
-- `POST /nginx/advanced/proxy`
 - `POST /nginx/advanced/reload`
 - `POST /nginx/advanced/test`
 - `POST /nginx/reload`
@@ -1178,7 +1180,6 @@ Regenerate (backend/):
 - `POST /services/from-repository`
 - `POST /services/manual`
 - `POST /services/move-to-project`
-- `POST /services/scale-sweep`
 - `POST /services/sweep-idle`
 - `POST /services/upload`
 - `POST /services/{app_id}/backups`
@@ -1191,8 +1192,6 @@ Regenerate (backend/):
 - `POST /services/{app_id}/micro-cache/purge`
 - `POST /services/{app_id}/restart`
 - `POST /services/{app_id}/rollback`
-- `POST /services/{app_id}/scale`
-- `POST /services/{app_id}/scale/evaluate`
 - `POST /services/{app_id}/sleep`
 - `POST /services/{app_id}/start`
 - `POST /services/{app_id}/stop`
@@ -1280,11 +1279,12 @@ Regenerate (backend/):
 - `PUT /apps/{app_id}/backup-policy`
 - `PUT /apps/{app_id}/env/{key}`
 - `PUT /apps/{app_id}/environment`
+- `PUT /apps/{app_id}/immutable-assets`
 - `PUT /apps/{app_id}/micro-cache`
+- `PUT /apps/{app_id}/pooler`
 - `PUT /apps/{app_id}/previews/settings`
 - `PUT /apps/{app_id}/private-url`
 - `PUT /apps/{app_id}/resources`
-- `PUT /apps/{app_id}/scale-policy`
 - `PUT /apps/{app_id}/sleep-policy`
 - `PUT /apps/{app_id}/workspace`
 - `PUT /auth/me`
@@ -1329,7 +1329,6 @@ Regenerate (backend/):
 - `PUT /services/{app_id}/environment`
 - `PUT /services/{app_id}/micro-cache`
 - `PUT /services/{app_id}/resources`
-- `PUT /services/{app_id}/scale-policy`
 - `PUT /services/{app_id}/sleep-policy`
 - `PUT /services/{app_id}/workspace`
 - `PUT /shared/variable-groups/{group_id}`

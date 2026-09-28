@@ -16,6 +16,12 @@ export function resolveAppContainerId(app, containers = []) {
 
     const appName = String(app?.name || '').toLowerCase();
     const generatedName = app?.id ? `serverkit-app-${app.id}` : '';
+    // The exact generated name wins outright: a build-pack app's Procfile
+    // workers (`serverkit-app-<id>-worker`) also contain the app name, and a
+    // worker listed first must not be mistaken for the web process.
+    const exact = generatedName && containers.find((container) => containerNames(container)
+        .some((name) => name.toLowerCase() === generatedName));
+    if (exact) return containerId(exact);
     const match = containers.find((container) => {
         const names = containerNames(container).map((name) => name.toLowerCase());
         const labels = container?.Labels ?? container?.labels ?? {};

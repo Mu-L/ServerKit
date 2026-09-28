@@ -6,7 +6,6 @@ alert thresholds, anomaly detection, capacity forecasting,
 fleet search, and metrics export.
 """
 
-import os
 from flask import Blueprint, request, jsonify, Response
 from flask_jwt_extended import jwt_required
 
@@ -188,11 +187,14 @@ def export_json():
 
 @fleet_monitor_bp.route('/prometheus', methods=['GET'])
 def prometheus_metrics():
-    """Prometheus-compatible metrics endpoint (no JWT, uses token param)."""
-    token = request.args.get('token') or request.headers.get('X-Prometheus-Token')
-    expected = os.environ.get('PROMETHEUS_TOKEN')
+    """Prometheus-compatible metrics endpoint (no JWT, uses token param).
 
-    if not expected or token != expected:
+    Accepts ``PROMETHEUS_TOKEN`` from the environment or the panel's own scrape
+    token, the one the Prometheus template is installed with (plan 86 §A4).
+    """
+    from app.services import metrics_token_service
+    token = request.args.get('token') or request.headers.get('X-Prometheus-Token')
+    if not metrics_token_service.is_valid(token):
         return Response('Unauthorized', status=401)
 
     metrics = fleet_monitor_service.get_prometheus_metrics()

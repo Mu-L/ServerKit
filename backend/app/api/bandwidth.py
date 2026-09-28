@@ -7,10 +7,12 @@ Mounted at /api/v1/bandwidth (registered in app/__init__.py).
 from flask import Blueprint, jsonify, request
 from app.middleware.rbac import get_current_user
 from app.error_reporting import unexpected_response
+from app.exceptions import NotFoundError
 
 from ..middleware.rbac import admin_required, viewer_required
 from ..models import Application
 from ..services.bandwidth_service import BandwidthService
+from ..services.request_metrics_service import RequestMetricsService
 from ..services.resource_grant_service import ResourceGrantService
 
 bandwidth_bp = Blueprint('bandwidth', __name__)
@@ -49,6 +51,20 @@ def get_app_bandwidth(app_id):
         })
     except Exception as exc:  # noqa: BLE001 - reported, not swallowed
         return unexpected_response(exc)
+
+
+@bandwidth_bp.route('/apps/<int:app_id>/requests', methods=['GET'])
+@viewer_required
+def get_app_request_metrics(app_id):
+    """Request rate, status classes, latency percentiles and cache hit ratio
+    from the timed access log (plan 86 §A2). ``period``: 1h, 24h, 7d or 30d."""
+    # Same 404 for a missing and a foreign app (plan 29 #9); a bad period is a
+    # ValidationError (400). Both go through the global handler.
+    app = RequestMetricsService.live_app(app_id)
+    if app is None or not ResourceGrantService.can_access_app(get_current_user(), app):
+        raise NotFoundError('Not found')
+    return jsonify(RequestMetricsService.series(
+        app_id, period=request.args.get('period', '24h')))
 
 
 @bandwidth_bp.route('/aggregate', methods=['POST'])

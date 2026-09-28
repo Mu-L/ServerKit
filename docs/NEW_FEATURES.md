@@ -14,7 +14,7 @@ are under `/api/v1`. "admin" requires an admin user; "edit" uses `_can_edit_app`
 | **Layout switcher** | User menu (sidebar footer) → "Layout": Sidebar / Compact / Top bar | No route; persisted to `localStorage['layout']` (`sidebar`\|`rail`\|`topbar`), applied as `data-layout` on `<html>`. Desktop only. |
 | **GPU Monitor** | Route `/gpu` · sidebar nav "GPU Monitor" (System) | Per-GPU cards + compute-process table; empty state when no GPU. |
 | **Dynamic DNS** | Route `/dynamic-dns` · sidebar nav "Dynamic DNS" (Infrastructure) | Host CRUD; shows the one-time token + ready update URL on create. |
-| **Container Ops tab** | App detail page (Docker apps) | Image-update check/apply, auto-sleep, auto-scale. |
+| **Container Ops tab** | App detail page (Docker apps) | Image-update check/apply, auto-sleep. |
 | **WAF tab** | App detail page (nginx-served apps: Docker + Python) | Install banner, mode/paranoia/anomaly, disabled-rule editor, apply, events. |
 
 ---
@@ -51,29 +51,6 @@ App badge: `app.image_update = {status, update_available, checked_at}`.
 App badge: `app.sleep = {enabled, asleep, idle_timeout_minutes}`.
 Idle is measured from `last_activity_at` (bumped on wake / `record_activity`); a
 no-activity-baseline policy is never slept blind.
-
-### Container auto-scale — `models: container_scale_policies` · `services/container_scale_service.py`
-| Method | Path | Auth | Notes |
-|---|---|---|---|
-| GET | `/apps/<id>/scale-policy` | auth | |
-| PUT | `/apps/<id>/scale-policy` | edit | Body `{enabled?, service_name?, min_replicas?, max_replicas?, cpu_high_percent?, cpu_low_percent?, cooldown_seconds?}`. Enabling requires a service name; low CPU must remain below high CPU. |
-| POST | `/apps/<id>/scale` | edit | Body `{replicas}`; manual scale through `docker compose --scale`, with a minimum of one replica. |
-| POST | `/apps/<id>/scale/evaluate` | edit | One auto decision (returns `action`: scaled_up/down/hold/cooldown/disabled/unknown). |
-| POST | `/apps/scale-sweep` | admin | Evaluate every enabled policy. **Cron-drivable.** |
-
-Requires a scale-capable Compose service with no fixed host port or `container_name`.
-Local apps only. The configured minimum acts as a floor on the next evaluation,
-even when CPU metrics are unavailable. The feature does not configure a load
-balancer, shared storage, health checks, or failover, so it must not be presented
-as end-to-end high availability. `current_replicas` records the last successful
-ServerKit scale command; it does not reconcile changes made through Docker outside
-ServerKit.
-
-Verification lives in `frontend/src/components/apps/__tests__/autoScalePolicy.test.mjs`,
-`frontend/src/services/api/__tests__/containerOps.test.mjs`, and
-`backend/tests/test_container_scale.py`. The backend workflow test covers policy
-read/write, evaluation, manual scale, and persistence. Docker execution and traffic
-continuity still require the real-host checklist in `docs/HORIZONTAL_SCALING_SPEC.md`.
 
 ### GPU monitoring — `services/gpu_service.py` (no model)
 | Method | Path | Auth | Notes |
@@ -119,9 +96,9 @@ continuity still require the real-host checklist in `docs/HORIZONTAL_SCALING_SPE
 
 ## 5. Operational notes
 
-- **Cron the sweeps**: `POST /apps/sweep-idle` (auto-sleep) and `POST /apps/scale-sweep`
-  (auto-scale) are admin endpoints meant to be hit periodically. Wiring them to a
-  built-in scheduler is a follow-up; for now drive them from cron.
+- **Cron the sweep**: `POST /apps/sweep-idle` (auto-sleep) is an admin endpoint meant
+  to be hit periodically. Wiring it to a built-in scheduler is a follow-up; for now
+  drive it from cron.
 - **Public DDNS endpoint**: `/ddns/update` is the only unauthenticated route added
   (the per-host token is the credential). Serve it over HTTPS.
 - **WAF integration is additive**: per-app rules go to `serverkit-conf.d/waf` and an

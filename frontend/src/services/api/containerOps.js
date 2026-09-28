@@ -1,4 +1,4 @@
-// Per-app container operations (image-update, auto-sleep, auto-scale) + GPU.
+// Per-app container operations (image-update, auto-sleep) + GPU.
 
 // --- Image updates ---
 export async function checkImageUpdate(appId) {
@@ -28,23 +28,6 @@ export async function sleepApp(appId) {
 
 export async function wakeApp(appId) {
     return this.request(`/apps/${appId}/wake`, { method: 'POST' });
-}
-
-// --- Auto-scale ---
-export async function getScalePolicy(appId) {
-    return this.request(`/apps/${appId}/scale-policy`);
-}
-
-export async function updateScalePolicy(appId, data) {
-    return this.request(`/apps/${appId}/scale-policy`, { method: 'PUT', body: data });
-}
-
-export async function scaleApp(appId, replicas) {
-    return this.request(`/apps/${appId}/scale`, { method: 'POST', body: { replicas } });
-}
-
-export async function evaluateScale(appId) {
-    return this.request(`/apps/${appId}/scale/evaluate`, { method: 'POST' });
 }
 
 // --- GPU ---

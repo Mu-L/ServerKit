@@ -1,3 +1,4 @@
+import logging
 import os
 import subprocess
 import re
@@ -6,6 +7,8 @@ from pathlib import Path
 
 from app.utils.system import (ServiceControl, is_command_available,
                              run_privileged, write_privileged_file)
+
+logger = logging.getLogger(__name__)
 
 
 def _auto_capture_vhost(name, action):
@@ -58,7 +61,7 @@ class NginxService:
     root {root_path};
     index index.php index.html index.htm;
 
-    access_log /var/log/nginx/{name}.access.log;
+    access_log /var/log/nginx/{name}.access.log serverkit_timed;
     error_log /var/log/nginx/{name}.error.log;
 
     location / {{
@@ -101,7 +104,7 @@ class NginxService:
     listen [::]:80;
     server_name {domains};
 
-    access_log /var/log/nginx/{name}.access.log;
+    access_log /var/log/nginx/{name}.access.log serverkit_timed;
     error_log /var/log/nginx/{name}.error.log;
 
     location / {{
@@ -132,7 +135,7 @@ class NginxService:
     root {root_path};
     index index.html index.htm;
 
-    access_log /var/log/nginx/{name}.access.log;
+    access_log /var/log/nginx/{name}.access.log serverkit_timed;
     error_log /var/log/nginx/{name}.error.log;
 
     location / {{
@@ -152,7 +155,7 @@ class NginxService:
     listen [::]:80;
     server_name {domains};
 
-    access_log /var/log/nginx/{name}.access.log;
+    access_log /var/log/nginx/{name}.access.log serverkit_timed;
     error_log /var/log/nginx/{name}.error.log;
 
     location / {{
@@ -222,7 +225,7 @@ limit_req_zone $server_name$binary_remote_addr zone=serverkit_wp_xmlrpc:10m rate
     listen [::]:80;
     server_name {domains};
 
-    access_log /var/log/nginx/{name}.access.log;
+    access_log /var/log/nginx/{name}.access.log serverkit_timed;
     error_log /var/log/nginx/{name}.error.log;
 
     location / {{
@@ -360,6 +363,67 @@ location = /wordpress {{
     }}
 '''
 
+    # ==================== TIMED ACCESS LOG (plan 86 §A1) ====================
+    # Every vhost ServerKit writes logs in this format. The combined fields come
+    # first, unchanged, so every existing combined-format reader (bandwidth
+    # accounting, the fail2ban `^<HOST> -` filters) keeps matching; the timing
+    # fields are appended after them. The app id is the log file itself
+    # (/var/log/nginx/<app>.access.log) — a per-vhost `set` variable would make
+    # `nginx -t` warn on every server block that never sets it.
+    TIMED_LOG_FORMAT = 'serverkit_timed'
+    TIMED_LOG_CONF_NAME = 'serverkit-log-format.conf'
+    TIMED_LOG_FORMAT_SNIPPET = """# ServerKit timed access-log format (auto-generated; do not edit).
+# Combined fields first (compatible with combined parsers), then timing.
+log_format serverkit_timed '$remote_addr - $remote_user [$time_local] "$request" '
+                           '$status $body_bytes_sent "$http_referer" "$http_user_agent" '
+                           'rt=$request_time urt="$upstream_response_time" '
+                           'cs=$upstream_cache_status h=$host';
+"""
+
+    # ==================== COMPRESSION (plan 86 §B1) ====================
+    # gzip (and brotli when the module is loaded) for every site, as one
+    # http-level conf.d snippet. Stock configs already set some of these —
+    # Debian's nginx.conf ships `gzip on;` — and a repeated http-level
+    # directive is fatal to `nginx -t`, so the snippet only carries the
+    # directives the running config does not already set (read from `nginx -T`).
+    COMPRESSION_CONF_NAME = 'serverkit-compression.conf'
+    # text/html is always compressed by nginx; listing it again only warns.
+    COMPRESSION_TYPES = (
+        'text/plain text/css text/xml text/javascript application/javascript '
+        'application/json application/xml application/rss+xml '
+        'application/atom+xml image/svg+xml application/wasm '
+        'font/ttf font/otf application/vnd.ms-fontobject'
+    )
+    GZIP_DIRECTIVES = (
+        ('gzip', 'on'),
+        ('gzip_vary', 'on'),
+        ('gzip_proxied', 'any'),
+        ('gzip_comp_level', '5'),
+        ('gzip_min_length', '1024'),
+        ('gzip_types', COMPRESSION_TYPES),
+    )
+    BROTLI_DIRECTIVES = (
+        ('brotli', 'on'),
+        ('brotli_comp_level', '5'),
+        ('brotli_min_length', '1024'),
+        ('brotli_types', COMPRESSION_TYPES),
+    )
+
+    # ==================== IMMUTABLE ASSETS (plan 86 §B2) ====================
+    # Opt-in, proxied sites only: a fingerprinted asset (a hash in its name)
+    # never changes, so the browser may keep it a year. Off by default because
+    # the panel cannot know an app's asset layout. The hash must be 8+ chars
+    # after a '.' or '-' AND contain a digit, so `app-settings.js` is never
+    # pinned; a hash with no digit is simply not long-cached (the safe miss).
+    IMMUTABLE_ASSET_PATTERN = (
+        r'[.-](?=[A-Za-z0-9_]*[0-9])[A-Za-z0-9_]{8,}'
+        r'\.(?:js|mjs|css|map|woff2?|ttf|otf|png|jpe?g|gif|svg|webp|avif|ico)$'
+    )
+    # One Cache-Control header: `expires` would emit its own max-age header
+    # next to this one, and clients read either.
+    IMMUTABLE_ASSET_HEADERS = '''        add_header Cache-Control "public, max-age=31536000, immutable";
+'''
+
     # ==================== MICRO-CACHE (task #21) ====================
     # Opt-in per-site micro-cache: a very short (10s) full-page cache in front
     # of proxied/PHP sites, with hard bypasses for anything personalized.
@@ -367,20 +431,18 @@ location = /wordpress {{
     # Design tradeoff — ONE shared zone/path for every opted-in site: nginx
     # cache zones must be declared statically in the http context, so a zone
     # per site does not scale (and can't be added/removed without touching a
-    # global file per site). Consequence: a manual purge is a full-zone wipe
-    # that clears cached entries for ALL opted-in sites. That is acceptable
-    # because the TTL is only 10 seconds — the purge button exists for the
-    # "I need it gone *now*" case, not for cache hygiene. proxy_* and
-    # fastcgi_* caches cannot share a keys_zone, hence two zones over one
-    # base directory (both wiped together on purge).
+    # global file per site). Purge is still per site: the cache key carries
+    # $host, and purge_micro_cache(hosts) deletes only the files whose KEY
+    # line names that host (plan 86 §B3). proxy_* and fastcgi_* caches cannot
+    # share a keys_zone, hence two zones over one base directory.
     MICROCACHE_CONF_NAME = 'serverkit-microcache.conf'
     MICROCACHE_DIR = '/var/cache/nginx/serverkit-microcache'
 
     MICROCACHE_ZONE_SNIPPET = '''# ServerKit micro-cache zones (auto-generated; do not edit).
 # One shared zone pair serves every site with micro-cache enabled — nginx
 # requires cache zones to be declared statically in the http context, so
-# per-site zones are not practical. Entries expire after 10s; a manual purge
-# wipes the whole directory (all opted-in sites).
+# per-site zones are not practical. Each site sets its own TTL; a purge
+# removes only that site's entries (the cache key carries the host).
 proxy_cache_path /var/cache/nginx/serverkit-microcache/proxy levels=1:2 keys_zone=serverkit_microcache:10m max_size=256m inactive=10m use_temp_path=off;
 fastcgi_cache_path /var/cache/nginx/serverkit-microcache/fastcgi levels=1:2 keys_zone=serverkit_microcache_php:10m max_size=256m inactive=10m use_temp_path=off;
 '''
@@ -397,17 +459,33 @@ fastcgi_cache_path /var/cache/nginx/serverkit-microcache/fastcgi levels=1:2 keys
     if ($request_uri ~* "^/(wp-admin|wp-login|admin|login|cart|checkout|my-account)") { set $sk_skip_cache 1; }
 '''
 
+    # Page-cache behaviour (plan 86 §B3):
+    #   * the key is `$scheme://$host$request_uri`, so the cache files of one
+    #     site can be found by host and purged alone (the proxy default key is
+    #     `$scheme$proxy_host$request_uri` — the upstream port, not the site);
+    #   * a failing or slow upstream serves the last good copy (use_stale), an
+    #     expired entry is refreshed in the background while the stale copy is
+    #     served, and cache_lock sends one request upstream per missing entry
+    #     instead of a stampede. The zone's inactive=10m bounds how long a stale
+    #     copy survives, so the TTL is capped well below it.
+    MICROCACHE_TTL_DEFAULT = 10
+    MICROCACHE_TTL_MAX = 300
+
     MICROCACHE_PROXY_BLOCK = '''        proxy_cache serverkit_microcache;
-        proxy_cache_valid 200 301 10s;
-        proxy_cache_use_stale updating error timeout;
+        proxy_cache_key $scheme://$host$request_uri;
+        proxy_cache_valid 200 301 {ttl}s;
+        proxy_cache_use_stale error timeout updating http_500 http_502 http_503;
+        proxy_cache_background_update on;
         proxy_cache_lock on;
         proxy_no_cache $sk_skip_cache;
         add_header X-SK-Cache $upstream_cache_status;
 '''
 
     MICROCACHE_FASTCGI_BLOCK = '''        fastcgi_cache serverkit_microcache_php;
-        fastcgi_cache_valid 200 301 10s;
-        fastcgi_cache_use_stale updating error timeout;
+        fastcgi_cache_key $scheme://$host$request_uri;
+        fastcgi_cache_valid 200 301 {ttl}s;
+        fastcgi_cache_use_stale error timeout updating http_500 http_503;
+        fastcgi_cache_background_update on;
         fastcgi_cache_lock on;
         fastcgi_cache_bypass $sk_skip_cache;
         fastcgi_no_cache $sk_skip_cache;
@@ -565,6 +643,8 @@ location /p/ {{
                            ssl_cert: str = None, ssl_key: str = None,
                            upstream: str = None,
                            micro_cache: bool = False,
+                           micro_cache_ttl: Optional[int] = None,
+                           immutable_assets: bool = False,
                            wordpress_protection: bool = False) -> Dict:
         """Render the vhost config for a site to a string — no side effects.
 
@@ -632,10 +712,13 @@ location /p/ {{
         else:
             return {'success': False, 'error': f'Unknown app type: {app_type}'}
 
+        if immutable_assets:
+            config = cls._with_immutable_assets(config, app_type)
+
         if micro_cache:
             # Inject before the SSL wrap so the redirect server block (which
             # also carries a server_name line) never receives cache directives.
-            config = cls._with_micro_cache(config, app_type)
+            config = cls._with_micro_cache(config, app_type, micro_cache_ttl)
 
         if wordpress_protection:
             if app_type != 'docker' or not port:
@@ -693,7 +776,25 @@ location /p/ {{
             return {'success': False, 'error': str(e)}
 
     @classmethod
-    def _with_micro_cache(cls, config: str, app_type: str) -> str:
+    def _with_immutable_assets(cls, config: str, app_type: str) -> str:
+        """Add a regex location for fingerprinted assets to a proxied vhost:
+        the same proxying as ``location /`` plus a one-year immutable cache.
+        Appended after ``location /`` (a matching regex location wins over the
+        ``/`` prefix wherever it sits) so the micro-cache injection still
+        anchors on the real ``location /``."""
+        if (app_type or '').lower() not in ('flask', 'django', 'python', 'docker', 'remote'):
+            return config
+        match = re.search(r'^    location / \{\n(.*?)^    \}\n', config, re.MULTILINE | re.DOTALL)
+        if not match:
+            return config
+        block = ('\n    # ServerKit: fingerprinted assets never change (plan 86 §B2)\n'
+                 f'    location ~* "{cls.IMMUTABLE_ASSET_PATTERN}" {{\n'
+                 + match.group(1) + cls.IMMUTABLE_ASSET_HEADERS + '    }\n')
+        return config[:match.end()] + block + config[match.end():]
+
+    @classmethod
+    def _with_micro_cache(cls, config: str, app_type: str,
+                          ttl: Optional[int] = None) -> str:
         """Inject the shared-zone micro-cache directives into a rendered vhost.
 
         fastcgi_cache for PHP-FPM-served sites, proxy_cache for reverse-proxied
@@ -702,11 +803,13 @@ location /p/ {{
         zones are declared once in conf.d by :meth:`ensure_cache_zone`.
         """
         t = (app_type or '').lower()
+        ttl = cls.clamp_micro_cache_ttl(ttl)
         if t in ('php', 'wordpress'):
             anchor = '        include fastcgi_params;\n'
             if anchor not in config:
                 return config
-            config = config.replace(anchor, anchor + cls.MICROCACHE_FASTCGI_BLOCK, 1)
+            config = config.replace(
+                anchor, anchor + cls.MICROCACHE_FASTCGI_BLOCK.format(ttl=ttl), 1)
         elif t in ('flask', 'django', 'python', 'docker', 'remote'):
             # proxy_cache_bypass may only be declared once per location, so
             # fold $sk_skip_cache into the template's existing $http_upgrade
@@ -717,7 +820,7 @@ location /p/ {{
             config = config.replace(
                 anchor,
                 '        proxy_cache_bypass $sk_skip_cache $http_upgrade;\n'
-                + cls.MICROCACHE_PROXY_BLOCK,
+                + cls.MICROCACHE_PROXY_BLOCK.format(ttl=ttl),
                 1,
             )
         else:
@@ -729,6 +832,14 @@ location /p/ {{
             config = config.replace(
                 match.group(1), match.group(1) + '\n' + cls.MICROCACHE_SKIP_BLOCK, 1)
         return config
+
+    @classmethod
+    def clamp_micro_cache_ttl(cls, ttl) -> int:
+        """A stored TTL as the seconds the vhost uses: unset → the 10s
+        default, anything else clamped to 1..MICROCACHE_TTL_MAX."""
+        if ttl in (None, ''):
+            return cls.MICROCACHE_TTL_DEFAULT
+        return max(1, min(int(ttl), cls.MICROCACHE_TTL_MAX))
 
     @classmethod
     def ensure_cache_zone(cls) -> Dict:
@@ -758,27 +869,165 @@ location /p/ {{
             return {'success': False, 'error': str(e)}
 
     @classmethod
-    def purge_micro_cache(cls) -> Dict:
-        """Wipe the shared micro-cache directory contents. Linux-only.
+    def ensure_log_format(cls) -> Dict:
+        """Write the ``serverkit_timed`` log_format to conf.d (idempotent).
 
-        Full-zone wipe by design (see the tradeoff note at the MICROCACHE_*
-        constants): the zone is shared across all opted-in sites, and with a
-        10s TTL a per-site purge buys almost nothing. nginx recreates cache
-        entries on demand — no reload needed.
+        ``log_format`` is http-context only, so like the micro-cache zone it is
+        a conf.d snippet, not part of any vhost. :meth:`write_vhost` calls this
+        before writing any vhost that references the format.
+        """
+        conf_path = os.path.join(cls.NGINX_CONF_DIR, 'conf.d', cls.TIMED_LOG_CONF_NAME)
+        try:
+            if os.path.isfile(conf_path):
+                with open(conf_path, 'r') as f:
+                    if f.read() == cls.TIMED_LOG_FORMAT_SNIPPET:
+                        return {'success': True, 'changed': False, 'path': conf_path}
+            written = write_privileged_file(conf_path, cls.TIMED_LOG_FORMAT_SNIPPET)
+            if not written['success']:
+                return {'success': False, 'error': written['error']}
+            return {'success': True, 'changed': True, 'path': conf_path}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    @classmethod
+    def _http_level_directives(cls, dump: str, skip_file: str) -> set:
+        """Directive names set at http level in an ``nginx -T`` dump.
+
+        ``nginx -T`` prints each file after a ``# configuration file <path>:``
+        header. In the main nginx.conf, http level is depth 1 inside
+        ``http {}``; every other file is included from the http block (conf.d)
+        or a server (sites), so its depth-0 directives are the http-level
+        ones. ``skip_file`` (our own snippet) is ignored so a rewrite never
+        mistakes its own lines for someone else's.
+        """
+        found = set()
+        current = None
+        depth = 0
+        in_http = False
+        for raw in dump.splitlines():
+            header = re.match(r'^# configuration file (.+):$', raw.strip())
+            if header:
+                current = header.group(1)
+                depth = 0
+                in_http = False
+                continue
+            if current is None or current == skip_file:
+                continue
+            line = raw.split('#', 1)[0].strip()
+            if not line:
+                continue
+            is_main = current.endswith('/nginx.conf')
+            http_level = (depth == 1 and in_http) if is_main else depth == 0
+            name = line.split(None, 1)[0].rstrip(';{')
+            if http_level and line.endswith(';'):
+                found.add(name)
+            if is_main and depth == 0 and name == 'http' and '{' in line:
+                in_http = True
+            depth += line.count('{') - line.count('}')
+            if is_main and depth == 0:
+                in_http = False
+        return found
+
+    @classmethod
+    def render_compression_snippet(cls, dump: str, conf_path: str,
+                                   nginx_v: str = '') -> str:
+        """The snippet for this box. When the running config already sets
+        everything it is comments only: still written, so the "already
+        handled" check stays a file-exists test instead of an ``nginx -T``
+        on every vhost write."""
+        present = cls._http_level_directives(dump, conf_path)
+        brotli = ('ngx_http_brotli_filter_module' in dump
+                  or 'brotli' in (nginx_v or '').lower())
+        wanted = list(cls.GZIP_DIRECTIVES)
+        if brotli:
+            wanted += list(cls.BROTLI_DIRECTIVES)
+        lines = [f'{name} {value};' for name, value in wanted if name not in present]
+        kept = sorted(name for name, _ in wanted if name in present)
+        header = ['# ServerKit compression (auto-generated; do not edit).']
+        if kept:
+            header.append('# Already set elsewhere, left alone: ' + ', '.join(kept))
+        return '\n'.join(header + lines) + '\n'
+
+    @classmethod
+    def ensure_compression(cls) -> Dict:
+        """Write the compression snippet once, best-effort (plan 86 §B1).
+
+        Skips when the snippet exists. A snippet that fails ``nginx -t`` is
+        removed again, so compression can never take the web server down —
+        it just stays off, and the error says why.
+        """
+        conf_path = os.path.join(cls.NGINX_CONF_DIR, 'conf.d', cls.COMPRESSION_CONF_NAME)
+        if os.path.isfile(conf_path):
+            return {'success': True, 'changed': False, 'path': conf_path}
+        try:
+            dump = run_privileged([cls.NGINX_BIN, '-T'], timeout=30)
+            if dump.returncode != 0:
+                return {'success': False, 'error': (dump.stderr or 'nginx -T failed').strip()}
+            version = run_privileged([cls.NGINX_BIN, '-V'], timeout=30)
+            snippet = cls.render_compression_snippet(
+                dump.stdout or '', conf_path, (version.stderr or '') + (version.stdout or ''))
+            written = write_privileged_file(conf_path, snippet)
+            if not written['success']:
+                return {'success': False, 'error': written['error']}
+            test = cls.test_config()
+            if not test['success']:
+                run_privileged(['rm', '-f', conf_path])
+                return {'success': False,
+                        'error': f"compression snippet rejected: {test.get('message') or test.get('error')}"}
+            return {'success': True, 'changed': True, 'path': conf_path}
+        except Exception as e:  # noqa: BLE001 - best-effort, never blocks a vhost
+            return {'success': False, 'error': str(e)}
+
+    # rm argv batch size for a per-site purge (keeps argv far below ARG_MAX).
+    PURGE_BATCH = 200
+
+    @classmethod
+    def purge_micro_cache(cls, hosts: Optional[List[str]] = None) -> Dict:
+        """Clear cached pages. Linux-only; no nginx reload needed.
+
+        With ``hosts`` only that site's entries go (plan 86 §B3). nginx writes
+        each entry's key as a ``KEY: <scheme>://<host><uri>`` header line in
+        the cache file, so a fixed-string grep for ``KEY: http[s]://<host>/``
+        finds exactly this site's files; the trailing ``/`` keeps
+        ``shop.example.com`` from matching ``shop.example.com.evil``. Entries
+        cached under the pre-§B3 key (before the vhost was rewritten) aren't
+        found this way, and expire on their own TTL.
+
+        Without ``hosts`` the whole shared directory is wiped (every site).
         """
         if os.name == 'nt':
             return {'success': False,
                     'error': 'Micro-cache purge is only available on Linux hosts'}
+        subdirs = [os.path.join(cls.MICROCACHE_DIR, d) for d in ('proxy', 'fastcgi')]
         try:
-            subdirs = [os.path.join(cls.MICROCACHE_DIR, d) for d in ('proxy', 'fastcgi')]
-            process = run_privileged(['rm', '-rf'] + subdirs)
-            if process.returncode != 0:
-                return {'success': False, 'error': process.stderr}
-            run_privileged(['mkdir', '-p'] + subdirs)
-            return {'success': True, 'message': 'Micro-cache cleared',
-                    'note': ('The micro-cache is one shared zone, so purging clears '
-                             'cached entries for every site that uses it. Entries '
-                             'expire within 10 seconds regardless.')}
+            if hosts is None:
+                process = run_privileged(['rm', '-rf'] + subdirs)
+                if process.returncode != 0:
+                    return {'success': False, 'error': process.stderr}
+                run_privileged(['mkdir', '-p'] + subdirs)
+                return {'success': True, 'message': 'Micro-cache cleared for every site'}
+
+            hosts = [h.lower() for h in hosts if h]
+            bad = [h for h in hosts if not _validate_domain(h)]
+            if bad or not hosts:
+                return {'success': False,
+                        'error': f"Invalid host: {bad[0] if bad else '(none)'}"}
+            argv = ['grep', '-rlaF']
+            for host in hosts:
+                argv += ['-e', f'KEY: http://{host}/', '-e', f'KEY: https://{host}/']
+            found = run_privileged(argv + subdirs, timeout=60)
+            # grep: 0 = matches, 1 = none; 2 = an error such as a missing
+            # subdir, which only matters if it hid every result.
+            if found.returncode not in (0, 1) and not (found.stdout or '').strip():
+                if 'No such file' not in (found.stderr or ''):
+                    return {'success': False, 'error': (found.stderr or 'grep failed').strip()}
+            files = [f for f in (found.stdout or '').splitlines() if f.strip()]
+            for i in range(0, len(files), cls.PURGE_BATCH):
+                removed = run_privileged(['rm', '-f', '--'] + files[i:i + cls.PURGE_BATCH])
+                if removed.returncode != 0:
+                    return {'success': False, 'error': removed.stderr}
+            return {'success': True, 'purged': len(files),
+                    'message': f'Cleared {len(files)} cached page(s) for this site'}
         except Exception as e:
             return {'success': False, 'error': str(e)}
 
@@ -787,6 +1036,8 @@ location /p/ {{
                     root_path: str = None, port: int = None, php_version: str = '8.2',
                     ssl_cert: str = None, ssl_key: str = None,
                     upstream: str = None, micro_cache: bool = False,
+                    micro_cache_ttl: Optional[int] = None,
+                    immutable_assets: bool = False,
                     wordpress_protection: bool = False) -> Dict:
         """Create a new site configuration.
 
@@ -800,6 +1051,7 @@ location /p/ {{
             name, app_type, domains, root_path=root_path, port=port,
             php_version=php_version, ssl_cert=ssl_cert, ssl_key=ssl_key,
             upstream=upstream, micro_cache=micro_cache,
+            micro_cache_ttl=micro_cache_ttl, immutable_assets=immutable_assets,
             wordpress_protection=wordpress_protection,
         )
         if not rendered.get('success'):
@@ -902,6 +1154,20 @@ location /p/ {{
         if (not name or os.path.basename(name) != name
                 or name in ('.', '..') or '\x00' in name):
             return {'success': False, 'error': f'Invalid site name: {name!r}'}
+
+        # A vhost naming the timed format fails `nginx -t` until the
+        # http-level log_format exists — declare it first.
+        if f' {cls.TIMED_LOG_FORMAT};' in content:
+            fmt = cls.ensure_log_format()
+            if not fmt.get('success'):
+                return {'success': False,
+                        'error': f"log format setup failed: {fmt.get('error')}"}
+
+        # Compression is global and best-effort: a box where it can't be set
+        # up still gets its vhost.
+        compression = cls.ensure_compression()
+        if not compression.get('success'):
+            logger.info('nginx compression not configured: %s', compression.get('error'))
 
         available_path = os.path.join(cls.SITES_AVAILABLE, name)
         enabled_path = os.path.join(cls.SITES_ENABLED, name)

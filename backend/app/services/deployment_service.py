@@ -218,6 +218,21 @@ class DeploymentService:
             if log_callback:
                 log_callback(f"Deployment successful! Version {deployment.version} is now live.")
 
+            # app.deployed was in the event catalog but nothing emitted it.
+            # Webhook subscribers and in-process listeners (a CDN purge,
+            # plan 86 §B4) hear it now. Best-effort: never fails the deploy.
+            try:
+                from app.services.event_service import EventService
+                EventService.emit('app.deployed', {
+                    'event': 'app.deployed',
+                    'timestamp': datetime.utcnow().isoformat(),
+                    'app_id': app.id, 'app_name': app.name,
+                    'version': deployment.version, 'deployment_id': deployment.id,
+                    'domains': [d.name for d in app.live_domains if d.name],
+                }, user_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning('app.deployed emit failed for app %s: %s', app.id, exc)
+
             return {
                 'success': True,
                 'deployment': deployment.to_dict()
@@ -376,9 +391,20 @@ class DeploymentService:
         )
 
         if result.get('success'):
+            from app.services.worker_process_service import (
+                WorkerProcessService, connect_shared_network)
+            connect_shared_network(app, container_name)
+            # Procfile worker/scheduler lines run as siblings of the same image
+            # (plan 86 §C3). Best-effort: the web process is already live.
+            workers = WorkerProcessService.deploy(
+                app, image_tag, env, volumes, log=log_callback)
+            if workers['failed'] and log_callback:
+                for process, error in workers['failed'].items():
+                    log_callback(f'Worker {process} did not start: {error}')
             return {
                 'success': True,
-                'container_id': result.get('container_id')
+                'container_id': result.get('container_id'),
+                'workers': workers,
             }
         return result
 

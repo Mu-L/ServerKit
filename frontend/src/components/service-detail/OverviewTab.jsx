@@ -8,6 +8,10 @@ import { getDeployStatus, formatRelativeTime, formatDuration } from '../../utils
 import { formatBytes } from '../../utils/formatBytes';
 import BandwidthSparkline from '../BandwidthSparkline';
 import ScheduledTasksCard from '../ScheduledTasksCard';
+import RequestMetricsCard from './RequestMetricsCard';
+import AttachmentsCard from './AttachmentsCard';
+import PoolerCard from './PoolerCard';
+import HintsCard from './HintsCard';
 import { KpiBand, MetricCard, Pill, Gauge, EnvTag, statusKind } from '@/components/ds';
 import { usePolling } from '@/hooks/usePolling';
 import { useTranslation } from 'react-i18next';
@@ -325,6 +329,18 @@ const OverviewTab = ({ app, deployConfig }) => {
                     <span className="overview-tab__bandwidth-caption">{t('app.overviewTab.last90Days', 'Last 90 days')}</span>
                 </div>
             )}
+
+            {/* Traffic (timed access log; hidden until requests exist) */}
+            <RequestMetricsCard appId={app.id} />
+
+            {/* Bottleneck hints from the traffic above (plan 86 §A5) */}
+            <HintsCard app={app} />
+
+            {/* Cache / storage / queue this app uses (plan 86 §C4) */}
+            <AttachmentsCard app={app} />
+
+            {/* PgBouncer beside an installed PostgreSQL (plan 86 §D1) */}
+            <PoolerCard app={app} />
 
             {/* Recent Deployments */}
             <div className="overview-tab__card overview-tab__card--full">

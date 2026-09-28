@@ -16,6 +16,8 @@ Proving points:
   save-only note when not; POST .../purge wipes the shared cache dir
   (Linux-guarded); both require auth
 """
+import shutil
+import os
 import pytest
 
 from app import db
@@ -50,7 +52,10 @@ def test_php_site_gets_fastcgi_cache_with_all_bypasses():
     cfg = res['config']
     assert 'fastcgi_cache serverkit_microcache_php;' in cfg
     assert 'fastcgi_cache_valid 200 301 10s;' in cfg
-    assert 'fastcgi_cache_use_stale updating error timeout;' in cfg
+    assert 'fastcgi_cache_key $scheme://$host$request_uri;' in cfg
+    assert ('fastcgi_cache_use_stale error timeout updating http_500 http_503;'
+            in cfg)
+    assert 'fastcgi_cache_background_update on;' in cfg
     assert 'fastcgi_cache_lock on;' in cfg
     assert 'fastcgi_cache_bypass $sk_skip_cache;' in cfg
     assert 'fastcgi_no_cache $sk_skip_cache;' in cfg
@@ -67,7 +72,12 @@ def test_docker_site_gets_proxy_cache_with_folded_bypass():
     cfg = res['config']
     assert 'proxy_cache serverkit_microcache;' in cfg
     assert 'proxy_cache_valid 200 301 10s;' in cfg
-    assert 'proxy_cache_use_stale updating error timeout;' in cfg
+    # Keyed on the site's host (the proxy default is the upstream port), so
+    # one site's entries can be purged alone (plan 86 §B3).
+    assert 'proxy_cache_key $scheme://$host$request_uri;' in cfg
+    assert ('proxy_cache_use_stale error timeout updating http_500 http_502 '
+            'http_503;' in cfg)
+    assert 'proxy_cache_background_update on;' in cfg
     assert 'proxy_cache_lock on;' in cfg
     assert 'proxy_no_cache $sk_skip_cache;' in cfg
     for marker in BYPASS_MARKERS:
@@ -346,22 +356,44 @@ def test_api_requires_auth(client, app):
     assert client.post('/api/v1/apps/1/micro-cache/purge').status_code == 401
 
 
-def test_api_purge_happy_path(client, auth_headers, app, monkeypatch):
-    site = _api_site(name='api-mc-purge', host=None)
+def test_api_purge_clears_only_this_sites_hosts(client, auth_headers, app, monkeypatch):
+    site = _api_site(name='api-mc-purge', host='purge-mc.lvh.me')
+    seen = []
     monkeypatch.setattr(NginxService, 'purge_micro_cache',
-                        classmethod(lambda cls: {'success': True, 'message': 'Micro-cache cleared',
-                                                 'note': 'shared zone'}))
+                        classmethod(lambda cls, hosts=None: seen.append(hosts) or
+                                    {'success': True, 'purged': 3, 'message': 'Cleared 3'}))
     resp = client.post(f'/api/v1/apps/{site.id}/micro-cache/purge', headers=auth_headers)
     assert resp.status_code == 200
-    data = resp.get_json()
-    assert data['message'] == 'Micro-cache cleared'
-    assert data['note'] == 'shared zone'
+    assert resp.get_json() == {'message': 'Cleared 3', 'purged': 3}
+    assert seen == [['purge-mc.lvh.me']], 'purge must never fall back to every site'
+
+
+def test_api_purge_without_a_domain_touches_nothing(client, auth_headers, app, monkeypatch):
+    site = _api_site(name='api-mc-purge-nodom', host=None)
+    monkeypatch.setattr(NginxService, 'purge_micro_cache',
+                        classmethod(lambda cls, hosts=None: pytest.fail('purged')))
+    resp = client.post(f'/api/v1/apps/{site.id}/micro-cache/purge', headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.get_json()['purged'] == 0
+
+
+def test_api_put_sets_and_validates_the_ttl(client, auth_headers, app, monkeypatch):
+    site = _api_site(host=None, name='api-mc-ttl')
+    url = f'/api/v1/apps/{site.id}/micro-cache'
+    ok = client.put(url, headers=auth_headers, json={'enabled': True, 'ttl': 60})
+    assert ok.status_code == 200 and ok.get_json()['micro_cache_ttl'] == 60
+    for bad in (0, NginxService.MICROCACHE_TTL_MAX + 1, '60', True, 1.5):
+        resp = client.put(url, headers=auth_headers, json={'enabled': True, 'ttl': bad})
+        assert resp.status_code == 400, bad
+    assert Application.query.get(site.id).micro_cache_ttl == 60
+    reset = client.put(url, headers=auth_headers, json={'enabled': True, 'ttl': None})
+    assert reset.get_json()['micro_cache_ttl'] is None
 
 
 def test_api_purge_failure_is_500_with_error(client, auth_headers, app, monkeypatch):
-    site = _api_site(name='api-mc-purgefail', host=None)
+    site = _api_site(name='api-mc-purgefail', host='purgefail-mc.lvh.me')
     monkeypatch.setattr(NginxService, 'purge_micro_cache',
-                        classmethod(lambda cls: {'success': False, 'error': 'boom'}))
+                        classmethod(lambda cls, hosts=None: {'success': False, 'error': 'boom'}))
     resp = client.post(f'/api/v1/apps/{site.id}/micro-cache/purge', headers=auth_headers)
     assert resp.status_code == 500
     assert resp.get_json() == {'error': 'boom'}
@@ -375,9 +407,8 @@ def test_purge_wipes_and_recreates_cache_dirs(fake_subprocess, monkeypatch):
     fake_subprocess.script(['rm'])
     fake_subprocess.script(['mkdir'])
 
-    res = NginxService.purge_micro_cache()
+    res = NginxService.purge_micro_cache()      # no hosts: every site
     assert res['success'] is True
-    assert 'shared' in res['note']              # documents the full-zone tradeoff
     rm, mkdir = fake_subprocess.commands()
     assert rm[:2] == ['rm', '-rf']
     assert f'{NginxService.MICROCACHE_DIR}/proxy'.replace('/', _os.sep) in [p.replace('/', _os.sep) for p in rm]
@@ -391,4 +422,67 @@ def test_purge_is_linux_guarded(fake_subprocess, monkeypatch):
     res = NginxService.purge_micro_cache()
     assert res['success'] is False
     assert 'Linux' in res['error']
+    assert fake_subprocess.commands() == []
+
+
+# ── per-site purge + TTL (plan 86 §B3) ───────────────────────────────────────
+
+@pytest.mark.parametrize('ttl,expected', [
+    (None, '10s'), (60, '60s'), (0, '1s'), (99999, f'{NginxService.MICROCACHE_TTL_MAX}s'),
+])
+def test_ttl_is_rendered_and_clamped(ttl, expected):
+    cfg = NginxService.render_site_config(
+        'shop', 'docker', ['shop.lvh.me'], port=8300, micro_cache=True,
+        micro_cache_ttl=ttl)['config']
+    assert f'proxy_cache_valid 200 301 {expected};' in cfg
+
+
+def test_ttl_cap_stays_below_the_zone_inactive_window():
+    """A stale copy only survives `inactive`; a TTL above it would leave
+    use_stale nothing to serve."""
+    assert 'inactive=10m' in NginxService.MICROCACHE_ZONE_SNIPPET
+    assert NginxService.MICROCACHE_TTL_MAX < 600
+
+
+def test_app_vhost_kwargs_carry_the_ttl(app):
+    site = _mk_site(_mk_owner().id, name='mc-ttl-kwargs', host='mc-ttl.lvh.me')
+    site.micro_cache_ttl = 45
+    kwargs, _warn = SiteDomainService.app_vhost_kwargs(site)
+    assert kwargs['micro_cache_ttl'] == 45
+
+
+@pytest.mark.skipif(shutil.which('grep') is None, reason='needs grep')
+def test_per_site_purge_removes_only_that_hosts_files(tmp_path, monkeypatch):
+    """Real grep over real cache-shaped files: nginx writes the key as a
+    `KEY: ...` header line near the start of each cache file."""
+    import subprocess as _sp
+    monkeypatch.setattr(os, 'name', 'posix')
+    monkeypatch.setattr(NginxService, 'MICROCACHE_DIR', str(tmp_path))
+    monkeypatch.setattr('app.services.nginx_service.run_privileged',
+                        lambda argv, **kw: _sp.run(argv, capture_output=True, text=True,
+                                                   timeout=kw.get('timeout', 30)))
+    entries = {
+        'proxy/a/1/shop1': 'KEY: https://shop.lvh.me/\n',
+        'proxy/a/2/shop2': 'KEY: http://shop.lvh.me/cart?x=1\n',
+        'fastcgi/b/3/shop3': 'KEY: https://shop.lvh.me/blog\n',
+        'proxy/c/4/other': 'KEY: https://blog.lvh.me/\n',
+        'proxy/c/5/lookalike': 'KEY: https://shop.lvh.me.evil.test/\n',
+    }
+    for rel, key in entries.items():
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b'\x05\x00binary-header\n' + key.encode() + b'\r\nbody')
+
+    res = NginxService.purge_micro_cache(['shop.lvh.me'])
+
+    assert res['success'] is True, res
+    assert res['purged'] == 3
+    left = sorted(p.name for p in tmp_path.rglob('*') if p.is_file())
+    assert left == ['lookalike', 'other']
+
+
+def test_per_site_purge_rejects_a_bad_host(monkeypatch, fake_subprocess):
+    monkeypatch.setattr(os, 'name', 'posix')
+    res = NginxService.purge_micro_cache(['shop.lvh.me; rm -rf /'])
+    assert res['success'] is False
     assert fake_subprocess.commands() == []

@@ -13,6 +13,7 @@ from app.services.docker_service import DockerService
 from app.services.remote_docker_service import RemoteDockerService
 from app.services.container_registry_service import ContainerRegistryService
 from app.services.unit_compose_service import UnitComposeService
+from app.services.worker_process_service import WorkerProcessService
 from app.services.app_port_service import AppPortService
 from app.services import container_status_service
 
@@ -156,6 +157,7 @@ def start_application(app, *, user_id=None):
                     'Run a deploy to build its image and create the container.'
                 )
             result = DockerService.start_container(container)
+            WorkerProcessService.each(app, 'start')
         else:
             # Authenticate a bound private registry before compose pulls the
             # image; best-effort, always logs back out. No-op without registry_id.
@@ -196,6 +198,7 @@ def stop_application(app, *, user_id=None):
             container = _app_container_name(app)
             result = ({'success': True} if not DockerService.get_container(container)
                       else DockerService.stop_container(container))
+            WorkerProcessService.each(app, 'stop')
         else:
             result = DockerService.compose_down(
                 app.root_path,
@@ -229,6 +232,7 @@ def restart_application(app, *, user_id=None):
                     'Run a deploy to build its image and create the container.'
                 )
             result = DockerService.restart_container(container)
+            WorkerProcessService.each(app, 'restart')
         else:
             result = DockerService.compose_restart(
                 app.root_path,

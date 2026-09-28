@@ -15,6 +15,10 @@ def nginx_tree(tmp_path, monkeypatch, fake_subprocess):
     enabled = tmp_path / 'sites-enabled'
     available.mkdir()
     enabled.mkdir()
+    # Global snippets already in place, so vhost writes don't probe nginx -T.
+    (tmp_path / 'conf.d').mkdir()
+    (tmp_path / 'conf.d' / NginxService.COMPRESSION_CONF_NAME).write_text('# set')
+    monkeypatch.setattr(NginxService, 'NGINX_CONF_DIR', str(tmp_path))
     monkeypatch.setattr(NginxService, 'SITES_AVAILABLE', str(available))
     monkeypatch.setattr(NginxService, 'SITES_ENABLED', str(enabled))
     monkeypatch.setattr(

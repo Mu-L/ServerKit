@@ -65,3 +65,12 @@ test('keeps compatibility with the historical normalized shape', () => {
         pids: 4,
     });
 });
+
+test('the generated container wins over a Procfile worker listed first', () => {
+    const containers = [
+        { id: 'worker', name: 'serverkit-app-5-worker' },
+        { id: 'web', name: 'serverkit-app-5' },
+    ];
+    // An app named "app" would substring-match the worker's name.
+    assert.equal(resolveAppContainerId({ id: 5, name: 'app' }, containers), 'web');
+});

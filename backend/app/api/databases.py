@@ -960,6 +960,40 @@ def kill_docker_db_process(container, pid):
     return jsonify(result), 200
 
 
+# ==================== INSIGHTS (plan 86 §A3) ====================
+# Read-only top queries + connection / cache-hit gauges for a Docker database
+# container, and the one write it offers: turning pg_stat_statements on
+# (through the config tuner, so its rollback undoes it).
+
+def _docker_db_target(container, source):
+    return {
+        'engine': source.get('type') or 'mysql',
+        'container': container,
+        'user': source.get('user'),
+        'password': request.headers.get('X-DB-Password'),
+        'database': source.get('database'),
+    }
+
+
+@databases_bp.route('/docker/<container>/insights', methods=['GET'])
+@admin_required
+def docker_db_insights(container):
+    from app.services.db_insights_service import DbInsightsService
+    result = DbInsightsService.insights(_docker_db_target(container, request.args))
+    if 'error' in result:
+        return _process_error_response(result)
+    return jsonify(result), 200
+
+
+@databases_bp.route('/docker/<container>/insights/pg-stat-statements', methods=['POST'])
+@admin_required
+def enable_pg_stat_statements(container):
+    from app.services.db_config_tuner_service import DbConfigTunerService
+    data = request.get_json(silent=True) or {}
+    target = _docker_db_target(container, dict(data, type='postgresql'))
+    return jsonify(DbConfigTunerService.enable_pg_stat_statements(target)), 200
+
+
 # ==================== UTILITY ====================
 
 @databases_bp.route('/generate-password', methods=['GET'])

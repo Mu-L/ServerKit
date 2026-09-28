@@ -27,6 +27,10 @@ def nginx(tmp_path, monkeypatch, fake_subprocess):
     enabled = tmp_path / 'sites-enabled'
     available.mkdir()
     enabled.mkdir()
+    (tmp_path / 'conf.d').mkdir()   # http-level snippets (timed log format)
+    # Compression already configured: its own suite covers the nginx -T probe.
+    (tmp_path / 'conf.d' / NginxService.COMPRESSION_CONF_NAME).write_text('# set')
+    monkeypatch.setattr(NginxService, 'NGINX_CONF_DIR', str(tmp_path))
     monkeypatch.setattr(NginxService, 'SITES_AVAILABLE', str(available))
     monkeypatch.setattr(NginxService, 'SITES_ENABLED', str(enabled))
     monkeypatch.setattr('app.services.nginx_service.is_command_available',

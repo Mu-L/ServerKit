@@ -47,6 +47,7 @@ import difflib
 import json
 import logging
 import os
+import re
 import sys
 from datetime import datetime
 
@@ -388,6 +389,23 @@ def _with_expected_waf(app_id, config):
     return injected if injected is not None else config
 
 
+# A vhost written before the timed log format (plan 86 §A1) has a bare
+# `access_log <path>;`. That is not drift: the format only changes what the log
+# records, and the next regeneration adopts it. Read such lines as the timed
+# form so an upgrade doesn't flag (and notify about) every existing site.
+_LEGACY_ACCESS_LOG_RE = re.compile(
+    r'^(\s*access_log /var/log/nginx/[^\s;]+\.access\.log);$', re.MULTILINE)
+
+
+def _nginx_read_actual(paths):
+    actual = _default_read_actual(paths)
+    return {
+        path: (_LEGACY_ACCESS_LOG_RE.sub(r'\1 serverkit_timed;', content)
+               if content is not None else None)
+        for path, content in actual.items()
+    }
+
+
 def _nginx_repair(app_id):
     from app.models.application import Application
     from app.services.nginx_service import NginxService
@@ -425,6 +443,7 @@ register_check({
     'supported': _linux_only,
     'list_resources': _nginx_list_resources,
     'render_expected': _nginx_render_expected,
+    'read_actual': _nginx_read_actual,
     'repair': _nginx_repair,
 })
 

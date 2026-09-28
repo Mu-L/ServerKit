@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { statusKind } from '@/components/ds/status';
-import { RefreshCw, ArrowUpCircle, Moon, Sun, Gauge as GaugeIcon, Boxes } from 'lucide-react';
+import { RefreshCw, ArrowUpCircle, Moon, Sun, Boxes } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../contexts/useToast.js';
@@ -11,13 +11,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useTranslation } from 'react-i18next';
-import {
-    DEFAULT_SCALE_POLICY,
-    normalizeScalePolicy,
-    replicaTarget,
-    resolvedReplicaCount,
-    scalePolicyPayload,
-} from './autoScalePolicy';
 
 // Short SHA helper for image digests (handles "sha256:abcdef..." or bare hashes)
 function shortDigest(digest) {
@@ -383,200 +376,6 @@ const AutoSleepSection = ({ app, onChanged }) => {
 };
 
 // ============================================================
-// Auto-scale section
-// ============================================================
-const AutoScaleSection = ({ app, onChanged }) => {
-    const { t } = useTranslation();
-    const toast = useToast();
-    const [form, setForm] = useState(DEFAULT_SCALE_POLICY);
-    const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
-    const [scaling, setScaling] = useState(false);
-    const [manualReplicas, setManualReplicas] = useState(1);
-
-    const load = useCallback(async () => {
-        setLoading(true);
-        try {
-            const data = await api.getScalePolicy(app.id);
-            const merged = normalizeScalePolicy(data);
-            setForm(merged);
-            setManualReplicas(merged.current_replicas ?? merged.min_replicas ?? 1);
-        } catch (err) {
-            console.error('Failed to load scale policy:', err);
-        } finally {
-            setLoading(false);
-        }
-    }, [app.id]);
-
-    useEffect(() => { load(); }, [load]);
-
-    function setField(key, value) {
-        setForm((prev) => ({ ...prev, [key]: value }));
-    }
-
-    async function handleSave() {
-        setSaving(true);
-        try {
-            const payload = scalePolicyPayload(form);
-            const data = await api.updateScalePolicy(app.id, payload);
-            setForm((prev) => ({ ...prev, ...(data || payload) }));
-            toast.success(t('app.containerOpsPanel.autoScalePolicySaved', 'Auto-scale policy saved.'));
-            onChanged?.();
-        } catch (err) {
-            toast.error(err.message || t('app.containerOpsPanel.failedToSavePolicy', 'Failed to save policy'));
-        } finally {
-            setSaving(false);
-        }
-    }
-
-    async function handleManualScale() {
-        const replicas = replicaTarget(manualReplicas);
-        setScaling(true);
-        try {
-            const result = await api.scaleApp(app.id, replicas);
-            const appliedReplicas = resolvedReplicaCount(result, replicas);
-            toast.success(t('app.containerOpsPanel.scaledToReplica', 'Scaled to {{replicas}} replica{{value}}.', { replicas: appliedReplicas, value: appliedReplicas === 1 ? '' : 's' }));
-            await load();
-            onChanged?.();
-        } catch (err) {
-            toast.error(err.message || t('app.containerOpsPanel.failedToScale', 'Failed to scale'));
-        } finally {
-            setScaling(false);
-        }
-    }
-
-    return (
-        <div className="app-panel container-ops__section">
-            <div className="app-panel-header">
-                <GaugeIcon />
-                <span>{t('app.containerOpsPanel.autoScale', 'Auto-Scale')}</span>
-                <span className="app-panel-header-actions">
-                    {!loading && (
-                        <Pill kind={form.enabled ? 'green' : 'gray'}>
-                            {form.enabled ? 'Enabled' : 'Disabled'}
-                        </Pill>
-                    )}
-                </span>
-            </div>
-            <div className="app-panel-body">
-                <p className="app-panel-hint">
-                    {t('app.containerOpsPanel.adjustReplicaCountBasedOnCpu', 'Adjust replica count based on CPU load. Requires a scale-capable Docker Compose service (one that can run multiple replicas).')}
-                </p>
-
-                <div className="container-ops__field">
-                    <div className="container-ops__field-text">
-                        <Label htmlFor={`scale-enabled-${app.id}`}>{t('app.containerOpsPanel.enableAutoScale', 'Enable auto-scale')}</Label>
-                        <span className="container-ops__field-hint">
-                            {t('app.containerOpsPanel.currentlyRunning', 'Currently running')} {form.current_replicas ?? '—'} replica(s).
-                        </span>
-                    </div>
-                    <Switch
-                        id={`scale-enabled-${app.id}`}
-                        checked={!!form.enabled}
-                        onCheckedChange={(v) => setField('enabled', v)}
-                        disabled={loading}
-                    />
-                </div>
-
-                <div className="container-ops__grid">
-                    <div className="container-ops__input">
-                        <Label htmlFor={`scale-service-${app.id}`}>{t('app.containerOpsPanel.serviceName', 'Service name')}</Label>
-                        <Input
-                            id={`scale-service-${app.id}`}
-                            type="text"
-                            value={form.service_name || ''}
-                            onChange={(e) => setField('service_name', e.target.value)}
-                            placeholder="web"
-                            disabled={loading}
-                        />
-                    </div>
-                    <div className="container-ops__input">
-                        <Label htmlFor={`scale-cooldown-${app.id}`}>{t('app.containerOpsPanel.cooldownSeconds', 'Cooldown (seconds)')}</Label>
-                        <Input
-                            id={`scale-cooldown-${app.id}`}
-                            type="number"
-                            min={0}
-                            value={form.cooldown_seconds}
-                            onChange={(e) => setField('cooldown_seconds', e.target.value)}
-                            disabled={loading}
-                        />
-                    </div>
-                    <div className="container-ops__input">
-                        <Label htmlFor={`scale-min-${app.id}`}>{t('app.containerOpsPanel.minReplicas', 'Min replicas')}</Label>
-                        <Input
-                            id={`scale-min-${app.id}`}
-                            type="number"
-                            min={1}
-                            value={form.min_replicas}
-                            onChange={(e) => setField('min_replicas', e.target.value)}
-                            disabled={loading}
-                        />
-                    </div>
-                    <div className="container-ops__input">
-                        <Label htmlFor={`scale-max-${app.id}`}>{t('app.containerOpsPanel.maxReplicas', 'Max replicas')}</Label>
-                        <Input
-                            id={`scale-max-${app.id}`}
-                            type="number"
-                            min={1}
-                            value={form.max_replicas}
-                            onChange={(e) => setField('max_replicas', e.target.value)}
-                            disabled={loading}
-                        />
-                    </div>
-                    <div className="container-ops__input">
-                        <Label htmlFor={`scale-cpu-high-${app.id}`}>{t('app.containerOpsPanel.cpuHigh', 'CPU high (%)')}</Label>
-                        <Input
-                            id={`scale-cpu-high-${app.id}`}
-                            type="number"
-                            min={0}
-                            max={100}
-                            value={form.cpu_high_percent}
-                            onChange={(e) => setField('cpu_high_percent', e.target.value)}
-                            disabled={loading}
-                        />
-                    </div>
-                    <div className="container-ops__input">
-                        <Label htmlFor={`scale-cpu-low-${app.id}`}>{t('app.containerOpsPanel.cpuLow', 'CPU low (%)')}</Label>
-                        <Input
-                            id={`scale-cpu-low-${app.id}`}
-                            type="number"
-                            min={0}
-                            max={100}
-                            value={form.cpu_low_percent}
-                            onChange={(e) => setField('cpu_low_percent', e.target.value)}
-                            disabled={loading}
-                        />
-                    </div>
-                </div>
-
-                <div className="app-detail-actions container-ops__actions">
-                    <Button size="sm" onClick={handleSave} disabled={saving || loading}>
-                        {saving ? 'Saving…' : 'Save policy'}
-                    </Button>
-                </div>
-
-                <div className="container-ops__manual">
-                    <div className="container-ops__input">
-                        <Label htmlFor={`scale-manual-${app.id}`}>{t('app.containerOpsPanel.manualReplicas', 'Manual replicas')}</Label>
-                        <Input
-                            id={`scale-manual-${app.id}`}
-                            type="number"
-                            min={1}
-                            value={manualReplicas}
-                            onChange={(e) => setManualReplicas(e.target.value)}
-                            disabled={scaling}
-                        />
-                    </div>
-                    <Button variant="outline" size="sm" onClick={handleManualScale} disabled={scaling || loading}>
-                        {scaling ? 'Scaling…' : 'Apply'}
-                    </Button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// ============================================================
 // Panel shell
 // ============================================================
 const ContainerOpsPanel = ({ app, onChanged }) => {
@@ -587,7 +386,6 @@ const ContainerOpsPanel = ({ app, onChanged }) => {
             <ImageUpdateSection app={app} onChanged={onChanged} />
             <RegistrySection app={app} onChanged={onChanged} />
             <AutoSleepSection app={app} onChanged={onChanged} />
-            <AutoScaleSection app={app} onChanged={onChanged} />
         </div>
     );
 };

@@ -2,11 +2,13 @@
 
 *Implementation record and remaining design for WordPress horizontal scaling.*
 
-> **Status (2026-08-27):** ServerKit ships the per-site edge and generic local
-> Docker Compose replica controls. WordPress high availability remains
-> incomplete. The supported single-host stack now has shared WordPress files,
-> but WordPress replica orchestration, scaler-to-nginx upstream updates,
-> health-based draining, and live failover proof have not shipped.
+> **Status (2026-09-28): replicas and load balancing are not pursued.**
+> ServerKit runs one live copy per app. The per-site edge (vhosts, micro-cache,
+> the timed access log) is shipped and stays. The generic Compose replica
+> controls, the auto-scaler and the nginx upstream/load-balancer builder were
+> removed: nginx only ever proxied to one port and the scaler was never
+> scheduled, so they could not work. Safe deploys move to A/B slot deploys
+> instead of replicas. The sections below are kept as the design record.
 
 ---
 

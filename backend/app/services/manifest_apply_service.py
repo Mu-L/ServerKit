@@ -34,10 +34,14 @@ _SCHEDULE_CRON = {
 
 # db engines the managed-database layer can actually record
 _MANAGED_DB_ENGINES = {'postgresql', 'mysql'}
+# manifest db types provisioned by installing the engine template of the same
+# id (plan 86 §C3); consumers bind with fromService over the shared network
+_ENGINE_TEMPLATE_TYPES = {'redis': 'redis'}
 
 # ordering weight per step type (dbs before consumers; domains last)
 _STEP_ORDER = {
     'provision_db': 0,
+    'provision_engine': 0,
     'warn': 1,
     'create_app': 2,
     'update_app': 3,
@@ -279,6 +283,15 @@ class ManifestApplyService:
     def _plan_db(cls, resolved: Dict[str, Any]) -> List[Dict[str, Any]]:
         engine = resolved['db_engine']
         name = resolved['name']
+        if engine in _ENGINE_TEMPLATE_TYPES:
+            if Application.query_active().filter_by(name=name).first() is not None:
+                return []   # already installed; fromService refs bind to it
+            return [{
+                'type': 'provision_engine', 'service': name,
+                'description': f'Install {engine} engine `{name}`',
+                'payload': {'template_id': _ENGINE_TEMPLATE_TYPES[engine], 'name': name,
+                            'version': resolved.get('engine_version')},
+            }]
         if engine not in _MANAGED_DB_ENGINES:
             return [{
                 'type': 'warn', 'service': name,
@@ -889,6 +902,26 @@ class ManifestApplyService:
             workspace_id=project.workspace_id,
         )
         return {'managed_database_id': managed.id}
+
+    @classmethod
+    def _do_provision_engine(cls, project, env, payload, user_id):
+        """Install the engine template under the service's name, through the
+        same job pipeline as the Databases page. The install is asynchronous;
+        consumers' fromService refs resolve once it finishes."""
+        from app.services import database_engine_service as engines
+        from app.services.deployment_job_service import DeploymentJobService
+
+        plan = engines.plan_install(template_id=payload['template_id'],
+                                    version=payload.get('version'),
+                                    instance_name=payload['name'])
+        if 'error' in plan:
+            raise RuntimeError(plan['error'])
+        result = DeploymentJobService.install_template(
+            template_id=payload['template_id'], app_name=plan['app_name'],
+            user_variables=plan['variables'], user_id=user_id)
+        if not result.get('success'):
+            raise RuntimeError(result.get('error') or 'engine install failed')
+        return {'job_id': result.get('job_id'), 'app_name': plan['app_name']}
 
     @classmethod
     def _do_create_app(cls, project, env, payload, user_id):
