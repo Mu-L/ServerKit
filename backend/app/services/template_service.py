@@ -651,6 +651,9 @@ class TemplateService:
     #   SERVICE_FQDN_<NAME>      -> the app's auto-assigned hostname (best-effort)
     #   SERVICE_URL_<NAME>       -> full URL derived from the FQDN (+ scheme)
     #   SERVICE_BASE64_<NAME>    -> base64 of a freshly generated secret
+    #   SERVERKIT_METRICS_TOKEN  -> the panel's Prometheus scrape token (plan
+    #                               86 §A4), so a monitoring template can scrape
+    #                               /api/v1/fleet-monitor/prometheus
     #
     # Resolution is PURE and unit-testable: no Docker, no network. The only
     # contextual input is an optional ``context`` dict (app_name / fqdn / scheme).
@@ -667,11 +670,19 @@ class TemplateService:
         ('SERVICE_BASE64_', 'base64'),
     ]
 
+    # Whole-name magic tokens (no ``<NAME>`` suffix) -> internal kind. One
+    # table so the resolver and the catalog validator agree on what exists.
+    MAGIC_EXACT_TOKENS = {
+        'SERVER_PUBLIC_IP': 'server_public_ip',       # appliance tier (plan 35)
+        'SERVERKIT_METRICS_TOKEN': 'metrics_token',   # plan 86 §A4
+    }
+
     # Matches ``${SERVICE_...}`` magic tokens specifically (a subset of the
     # generic ``${VAR}`` substitution pattern). ``<NAME>`` may be empty-safe:
     # we require at least one trailing char after the prefix.
     MAGIC_TOKEN_PATTERN = (
-        r'\$\{(SERVICE_(?:PASSWORD|USER|FQDN|URL|BASE64)_[A-Z0-9_]+|SERVER_PUBLIC_IP)\}'
+        r'\$\{(SERVICE_(?:PASSWORD|USER|FQDN|URL|BASE64)_[A-Z0-9_]+|SERVER_PUBLIC_IP'
+        r'|SERVERKIT_METRICS_TOKEN)\}'
     )
 
     # Default password length for magic SERVICE_PASSWORD_* tokens.
@@ -681,8 +692,8 @@ class TemplateService:
     def _classify_magic_token(cls, token: str):
         """Return ``(kind, name)`` for a bare magic token (no ``${}``), or
         ``(None, None)`` if it is not a recognized magic variable."""
-        if token == 'SERVER_PUBLIC_IP':  # appliance tier (plan 35), no name suffix
-            return 'server_public_ip', ''
+        if token in cls.MAGIC_EXACT_TOKENS:
+            return cls.MAGIC_EXACT_TOKENS[token], ''
         for prefix, kind in cls.MAGIC_PREFIXES:
             if token.startswith(prefix):
                 return kind, token[len(prefix):]
@@ -728,6 +739,9 @@ class TemplateService:
             scheme = str(context.get('scheme') or 'http')
             host = context.get('fqdn') or context.get('app_name') or 'localhost'
             return f'{scheme}://{host}'
+        if kind == 'metrics_token':
+            from app.services import metrics_token_service
+            return metrics_token_service.get_or_create()
         if kind == 'server_public_ip':
             ip = context.get('server_public_ip')
             if not ip:

@@ -75,7 +75,8 @@ def _declared_var_names(template):
 
 
 def _is_magic(name):
-    return any(name.startswith(prefix) for prefix in MAGIC_PREFIXES)
+    return (name in TemplateService.MAGIC_EXACT_TOKENS
+            or any(name.startswith(prefix) for prefix in MAGIC_PREFIXES))
 
 
 def _scan_var_refs(node, out):
