@@ -131,3 +131,20 @@ def get_hints(app_id):
     if app is None or not ResourceGrantService.can_access_app(get_current_user(), app):
         raise NotFoundError('Application not found')
     return jsonify({'hints': BottleneckHintsService.hints(app)})
+
+
+# ==================== IMMUTABLE ASSETS (plan 86 §B2) ====================
+
+@app_attachments_bp.route('/<int:app_id>/immutable-assets', methods=['PUT'])
+@developer_required
+def set_immutable_assets(app_id):
+    """Long-cache fingerprinted assets (``app.3f9a2c1d.js``) in the vhost.
+    Off by default: the panel cannot know an app's asset layout."""
+    from app.services.site_domain_service import SiteDomainService
+    app = AppAttachmentService.live_app(app_id)
+    if app is None or not ResourceGrantService.can_edit_app(get_current_user(), app):
+        raise NotFoundError('Application not found')
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data.get('enabled'), bool):
+        raise ValidationError("'enabled' must be true or false")
+    return jsonify(SiteDomainService.set_immutable_assets(app, data['enabled']))

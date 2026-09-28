@@ -116,6 +116,8 @@ class Application(JsonColumnMixin, TimestampMixin, SoftDeleteMixin, db.Model):
     micro_cache_ttl = db.Column(db.Integer, nullable=True)
     # Opt-in PgBouncer sidecar for a PostgreSQL engine app (plan 86 §D1).
     pooler_enabled = db.Column(db.Boolean, nullable=True)
+    # Long-cache fingerprinted assets in the vhost (plan 86 §B2).
+    immutable_assets = db.Column(db.Boolean, nullable=True)
 
     # Environment linking
     environment_type = db.Column(db.String(20), default='standalone')  # 'production', 'development', 'staging', 'standalone'
@@ -236,6 +238,7 @@ class Application(JsonColumnMixin, TimestampMixin, SoftDeleteMixin, db.Model):
             'micro_cache_enabled': bool(self.micro_cache_enabled),
             'micro_cache_ttl': self.micro_cache_ttl,
             'pooler_enabled': bool(self.pooler_enabled),
+            'immutable_assets': bool(self.immutable_assets),
             'environment_type': self.environment_type,
             'linked_app_id': self.linked_app_id,
             'shared_config': self._json_read('shared_config', None),

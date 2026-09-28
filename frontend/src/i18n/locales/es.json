@@ -3027,7 +3027,10 @@
             "clearing": "Borrando…",
             "hitRatio": "Tasa de aciertos (24 h)",
             "hitRatioHint": "Proporción de solicitudes cacheables respondidas desde la caché. Las solicitudes que evitan la caché no cuentan.",
-            "noCachedTrafficYet": "Aún no hay tráfico en caché"
+            "noCachedTrafficYet": "Aún no hay tráfico en caché",
+            "assetCachingSaved": "Caché de recursos guardada.",
+            "longCacheAssets": "Caché larga de recursos con huella",
+            "longCacheAssetsHint": "Los navegadores guardan un año los archivos cuyo nombre lleva un hash de contenido (app.3f9a2c1d.js). Actívalo solo si tu build nombra así los recursos: un archivo que cambie sin cambiar de nombre quedaría desactualizado."
         },
         "migrationHistoryTab": {
             "aDatabaseBackupIsCreatedFirst": "Primero se crea una copia de seguridad de la base de datos y luego el esquema se actualiza de {{value}} a {{value2}}.",

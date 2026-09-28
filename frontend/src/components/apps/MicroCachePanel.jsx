@@ -12,6 +12,9 @@ import { useTranslation } from 'react-i18next';
 // Must match NginxService.MICROCACHE_TTL_DEFAULT / MICROCACHE_TTL_MAX.
 const TTL_DEFAULT = 10;
 const TTL_MAX = 300;
+// App types whose vhost proxies to the app — the only ones the fingerprinted
+// asset rule applies to (NginxService._with_immutable_assets).
+const PROXIED_TYPES = ['docker', 'flask', 'django', 'python', 'remote'];
 
 // Micro-cache panel (task #21, plan 86 §B3) — opt-in nginx page cache per
 // site. The backend rewrites the site's vhost with the cache directives plus
@@ -27,6 +30,8 @@ const MicroCachePanel = ({ app, onChanged }) => {
     const [saving, setSaving] = useState(false);
     const [purging, setPurging] = useState(false);
     const [hitRatio, setHitRatio] = useState(null);
+    const [immutable, setImmutable] = useState(!!app.immutable_assets);
+    const proxied = PROXIED_TYPES.includes(app.app_type);
 
     useEffect(() => {
         if (!enabled) return undefined;
@@ -78,6 +83,19 @@ const MicroCachePanel = ({ app, onChanged }) => {
         }
     }
 
+    async function handleImmutable(next) {
+        setImmutable(next);
+        try {
+            const data = await api.setImmutableAssets(app.id, next);
+            if (data.warning) toast.warning(data.warning);
+            else toast.success(t('app.microCachePanel.assetCachingSaved', 'Asset caching saved.'));
+            onChanged?.();
+        } catch (err) {
+            setImmutable(!next);
+            toast.error(err.message);
+        }
+    }
+
     async function handlePurge() {
         if (!await confirm({
             title: t('app.microCachePanel.clearMicroCache', 'Clear micro-cache'),
@@ -123,6 +141,24 @@ const MicroCachePanel = ({ app, onChanged }) => {
                         {saving && <span className="settings-saving">{t('common.editing.saving', 'Saving…')}</span>}
                     </div>
                 </div>
+
+                {proxied && (
+                    <div className="settings-row">
+                        <div className="settings-label">
+                            <span>{t('app.microCachePanel.longCacheAssets', 'Long-cache fingerprinted assets')}</span>
+                            <span className="settings-hint">
+                                {t('app.microCachePanel.longCacheAssetsHint', 'Browsers keep files whose name carries a content hash (app.3f9a2c1d.js) for a year. Only turn this on if your build names assets that way: a file that changes without a new name would stay stale.')}
+                            </span>
+                        </div>
+                        <div className="settings-control">
+                            <Switch
+                                checked={immutable}
+                                onCheckedChange={handleImmutable}
+                                aria-label={t('app.microCachePanel.longCacheAssets', 'Long-cache fingerprinted assets')}
+                            />
+                        </div>
+                    </div>
+                )}
 
                 {enabled && (
                     <>

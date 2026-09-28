@@ -1289,6 +1289,7 @@ Regenerate (backend/):
 - `PUT /apps/{app_id}/backup-policy`
 - `PUT /apps/{app_id}/env/{key}`
 - `PUT /apps/{app_id}/environment`
+- `PUT /apps/{app_id}/immutable-assets`
 - `PUT /apps/{app_id}/micro-cache`
 - `PUT /apps/{app_id}/pooler`
 - `PUT /apps/{app_id}/previews/settings`

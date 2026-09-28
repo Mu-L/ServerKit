@@ -569,3 +569,8 @@ export async function setAppPooler(appId, enabled) {
 export async function getAppHints(appId) {
     return this.request(`/apps/${appId}/hints`);
 }
+
+// Long-cache fingerprinted assets in the vhost (plan 86 §B2).
+export async function setImmutableAssets(appId, enabled) {
+    return this.request(`/apps/${appId}/immutable-assets`, { method: 'PUT', body: { enabled } });
+}

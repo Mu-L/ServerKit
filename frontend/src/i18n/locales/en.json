@@ -3269,6 +3269,7 @@
             "workers": "Workers"
         },
         "microCachePanel": {
+            "assetCachingSaved": "Asset caching saved.",
             "cacheLifetime": "Cache lifetime (seconds)",
             "cacheLifetimeHint": "How long a page is served from the cache before the app is asked again (1–{{max}}). Longer means fewer requests reach the app, and changes take longer to show.",
             "cacheLifetimeSaved": "Cache lifetime saved.",
@@ -3283,6 +3284,8 @@
             "failedToUpdateMicroCache": "Failed to update micro-cache",
             "hitRatio": "Hit ratio (24 h)",
             "hitRatioHint": "Share of cacheable requests answered from the cache. Bypassed requests are not counted.",
+            "longCacheAssets": "Long-cache fingerprinted assets",
+            "longCacheAssetsHint": "Browsers keep files whose name carries a content hash (app.3f9a2c1d.js) for a year. Only turn this on if your build names assets that way: a file that changes without a new name would stay stale.",
             "meansThePageCameFromThe": "means the page came from the cache,",
             "microCache": "Micro-cache",
             "microCacheCleared": "Micro-cache cleared",

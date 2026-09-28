@@ -409,6 +409,21 @@ log_format serverkit_timed '$remote_addr - $remote_user [$time_local] "$request"
         ('brotli_types', COMPRESSION_TYPES),
     )
 
+    # ==================== IMMUTABLE ASSETS (plan 86 §B2) ====================
+    # Opt-in, proxied sites only: a fingerprinted asset (a hash in its name)
+    # never changes, so the browser may keep it a year. Off by default because
+    # the panel cannot know an app's asset layout. The hash must be 8+ chars
+    # after a '.' or '-' AND contain a digit, so `app-settings.js` is never
+    # pinned; a hash with no digit is simply not long-cached (the safe miss).
+    IMMUTABLE_ASSET_PATTERN = (
+        r'[.-](?=[A-Za-z0-9_]*[0-9])[A-Za-z0-9_]{8,}'
+        r'\.(?:js|mjs|css|map|woff2?|ttf|otf|png|jpe?g|gif|svg|webp|avif|ico)$'
+    )
+    # One Cache-Control header: `expires` would emit its own max-age header
+    # next to this one, and clients read either.
+    IMMUTABLE_ASSET_HEADERS = '''        add_header Cache-Control "public, max-age=31536000, immutable";
+'''
+
     # ==================== MICRO-CACHE (task #21) ====================
     # Opt-in per-site micro-cache: a very short (10s) full-page cache in front
     # of proxied/PHP sites, with hard bypasses for anything personalized.
@@ -629,6 +644,7 @@ location /p/ {{
                            upstream: str = None,
                            micro_cache: bool = False,
                            micro_cache_ttl: Optional[int] = None,
+                           immutable_assets: bool = False,
                            wordpress_protection: bool = False) -> Dict:
         """Render the vhost config for a site to a string — no side effects.
 
@@ -696,6 +712,9 @@ location /p/ {{
         else:
             return {'success': False, 'error': f'Unknown app type: {app_type}'}
 
+        if immutable_assets:
+            config = cls._with_immutable_assets(config, app_type)
+
         if micro_cache:
             # Inject before the SSL wrap so the redirect server block (which
             # also carries a server_name line) never receives cache directives.
@@ -755,6 +774,23 @@ location /p/ {{
             }
         except Exception as e:
             return {'success': False, 'error': str(e)}
+
+    @classmethod
+    def _with_immutable_assets(cls, config: str, app_type: str) -> str:
+        """Add a regex location for fingerprinted assets to a proxied vhost:
+        the same proxying as ``location /`` plus a one-year immutable cache.
+        Appended after ``location /`` (a matching regex location wins over the
+        ``/`` prefix wherever it sits) so the micro-cache injection still
+        anchors on the real ``location /``."""
+        if (app_type or '').lower() not in ('flask', 'django', 'python', 'docker', 'remote'):
+            return config
+        match = re.search(r'^    location / \{\n(.*?)^    \}\n', config, re.MULTILINE | re.DOTALL)
+        if not match:
+            return config
+        block = ('\n    # ServerKit: fingerprinted assets never change (plan 86 §B2)\n'
+                 f'    location ~* "{cls.IMMUTABLE_ASSET_PATTERN}" {{\n'
+                 + match.group(1) + cls.IMMUTABLE_ASSET_HEADERS + '    }\n')
+        return config[:match.end()] + block + config[match.end():]
 
     @classmethod
     def _with_micro_cache(cls, config: str, app_type: str,
@@ -1001,6 +1037,7 @@ location /p/ {{
                     ssl_cert: str = None, ssl_key: str = None,
                     upstream: str = None, micro_cache: bool = False,
                     micro_cache_ttl: Optional[int] = None,
+                    immutable_assets: bool = False,
                     wordpress_protection: bool = False) -> Dict:
         """Create a new site configuration.
 
@@ -1014,7 +1051,7 @@ location /p/ {{
             name, app_type, domains, root_path=root_path, port=port,
             php_version=php_version, ssl_cert=ssl_cert, ssl_key=ssl_key,
             upstream=upstream, micro_cache=micro_cache,
-            micro_cache_ttl=micro_cache_ttl,
+            micro_cache_ttl=micro_cache_ttl, immutable_assets=immutable_assets,
             wordpress_protection=wordpress_protection,
         )
         if not rendered.get('success'):

@@ -493,7 +493,8 @@ class SiteDomainService:
         # an enabled cache must never show up as config drift.
         base = dict(name=app.name, domains=domains, ssl_cert=ssl_cert, ssl_key=ssl_key,
                     micro_cache=bool(getattr(app, 'micro_cache_enabled', False)),
-                    micro_cache_ttl=getattr(app, 'micro_cache_ttl', None))
+                    micro_cache_ttl=getattr(app, 'micro_cache_ttl', None),
+                    immutable_assets=bool(getattr(app, 'immutable_assets', False)))
         # Reverse-proxy to a local container/app port.
         if t in ('docker', 'wordpress'):
             if not app.port:
@@ -552,6 +553,24 @@ class SiteDomainService:
             ssl_cert, ssl_key = cls.wildcard_cert_paths(cover)
 
         return cls._vhost_create_kwargs(app, domains, ssl_cert, ssl_key, force_type)
+
+    @classmethod
+    def set_immutable_assets(cls, app, enabled):
+        """Save the fingerprinted-asset caching flag and republish the vhost
+        through the same path as every other vhost setting (plan 86 §B2), so
+        drift detection renders the same file."""
+        from app import db
+        app.immutable_assets = bool(enabled)
+        db.session.commit()
+        applied, warning = False, None
+        if app.live_domains:
+            result = cls.write_app_vhost(app)
+            warning = result.get('warning')
+            applied = result.get('nginx') is not None and not warning
+        body = {'immutable_assets': bool(app.immutable_assets), 'applied': applied}
+        if warning:
+            body['warning'] = warning
+        return body
 
     @classmethod
     def write_app_vhost(cls, app, force_type=None):
