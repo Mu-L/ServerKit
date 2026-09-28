@@ -5,6 +5,7 @@ Hermetic: a fake Garage admin records calls. The real-Garage round trip
 docker-builds leg in test_real_storage_attach_docker.py.
 """
 import json
+import os
 
 import pytest
 import yaml
@@ -150,8 +151,9 @@ def test_api_attach_list_detach(installed, client, auth_headers, monkeypatch):
     monkeypatch.setattr(svc, 'GarageAdmin', lambda name: fake, raising=False)
     monkeypatch.setattr('app.services.garage_admin.GarageAdmin', lambda name: fake)
 
-    services = client.get('/api/v1/apps/attachments/storage-services', headers=auth_headers)
+    services = client.get('/api/v1/apps/attachments/services?kind=storage', headers=auth_headers)
     assert [s['name'] for s in services.get_json()['services']] == ['store']
+    assert 'bucket' in services.get_json()['failure_mode']
 
     made = client.post(f'/api/v1/apps/{web.id}/attachments/storage',
                        json={'service_app_id': store.id}, headers=auth_headers)
@@ -159,7 +161,7 @@ def test_api_attach_list_detach(installed, client, auth_headers, monkeypatch):
     body = made.get_json()
     assert body['redeploy_required'] is True
     assert body['attachment']['bucket'] == 'web'
-    assert 'secret' not in json.dumps(body).lower().replace('s3_secret', '')
+    assert 'topsecret' not in json.dumps(body), 'the secret value never leaves the vault'
 
     listed = client.get(f'/api/v1/apps/{web.id}/attachments', headers=auth_headers)
     assert [a['id'] for a in listed.get_json()['attachments']] == [body['attachment']['id']]
@@ -188,3 +190,68 @@ def test_deleting_either_app_takes_the_attachment(installed):
     db.session.delete(Application.query.get(store.id))
     db.session.commit()
     assert AppAttachment.query.count() == 0
+
+
+# ── cache and queue (plan 86 §C4) ─────────────────────────────────────────────
+
+def _installed_with_vars(installed, name, template_id, variables):
+    row = installed(name, template_id)
+    path = os.path.join(row.root_path, '.serverkit-template.json')
+    with open(path, 'w') as fh:
+        json.dump({'template_id': template_id, 'variables': variables}, fh)
+    return row
+
+
+@pytest.mark.parametrize('kind,template_id,keys,scheme', [
+    ('cache', 'redis', ['REDIS_URL'], 'redis://'),
+    ('cache', 'valkey', ['REDIS_URL'], 'redis://'),
+    ('queue', 'rabbitmq', ['AMQP_URL', 'BROKER_URL'], 'amqp://'),
+    ('queue', 'redis', ['BROKER_URL'], 'redis://'),
+])
+def test_connection_kinds_wire_the_services_url(installed, kind, template_id, keys, scheme):
+    svc_app = _installed_with_vars(installed, 'svc', template_id,
+                                   {'DB_PASSWORD': 'pw', 'RABBITMQ_USER': 'u',
+                                    'RABBITMQ_PASSWORD': 'pw'})
+    web = installed('web')
+    row, created = AppAttachmentService.attach(web, svc_app, kind)
+    assert created and row.details['env_keys'] == keys
+    env = EnvService.get_effective_env(web.id)
+    for key in keys:
+        assert env[key].startswith(scheme + ('' if scheme == 'amqp://' else ':')), env[key]
+    assert 'AMQP_URL' not in env or template_id == 'rabbitmq'
+
+    AppAttachmentService.detach(row)
+    env = EnvService.get_effective_env(web.id)
+    assert not any(k in env for k in keys)
+
+
+@pytest.mark.parametrize('kind,template_id', [
+    ('cache', 'rabbitmq'), ('cache', 'garage'), ('queue', 'garage'), ('cache', None),
+])
+def test_a_service_that_does_not_offer_the_kind_is_refused(installed, kind, template_id):
+    target, web = installed('target', template_id), installed('web')
+    with pytest.raises(AttachmentError, match=f'cannot be used as a {kind}'):
+        AppAttachmentService.attach(web, target, kind)
+
+
+def test_services_for_lists_only_matching_services(installed):
+    installed('cache1', 'redis')
+    installed('mq', 'rabbitmq')
+    installed('store', 'garage')
+    installed('web')
+    names = lambda kind: [a.name for a in AppAttachmentService.services_for(kind)]
+    assert names('cache') == ['cache1']
+    assert names('queue') == ['cache1', 'mq']
+    assert names('storage') == ['store']
+
+
+def test_api_rejects_an_unknown_kind(installed, client, auth_headers):
+    web, cache = installed('web'), installed('cache1', 'redis')
+    bad = client.post(f'/api/v1/apps/{web.id}/attachments/tracing',
+                      json={'service_app_id': cache.id}, headers=auth_headers)
+    assert bad.status_code == 400
+    assert client.get('/api/v1/apps/attachments/services?kind=nope',
+                      headers=auth_headers).status_code == 400
+    ok = client.post(f'/api/v1/apps/{web.id}/attachments/cache',
+                     json={'service_app_id': cache.id}, headers=auth_headers)
+    assert ok.status_code == 201 and ok.get_json()['attachment']['env_keys'] == ['REDIS_URL']

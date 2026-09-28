@@ -534,3 +534,24 @@ export async function rollback(appId, targetVersion = null) {
 export async function getCurrentDeployment(appId) {
     return this.request(`/builds/apps/${appId}/current-deployment`);
 }
+
+// Services an app uses (plan 86 §C4): storage (own bucket + scoped key),
+// cache and queue (env references to an installed engine).
+export async function getAppAttachments(appId) {
+    return this.request(`/apps/${appId}/attachments`);
+}
+
+export async function getAttachableServices(kind) {
+    return this.request(`/apps/attachments/services?kind=${encodeURIComponent(kind)}`);
+}
+
+export async function attachService(appId, kind, serviceAppId) {
+    return this.request(`/apps/${appId}/attachments/${encodeURIComponent(kind)}`, {
+        method: 'POST',
+        body: { service_app_id: serviceAppId },
+    });
+}
+
+export async function detachService(appId, attachmentId) {
+    return this.request(`/apps/${appId}/attachments/${attachmentId}`, { method: 'DELETE' });
+}

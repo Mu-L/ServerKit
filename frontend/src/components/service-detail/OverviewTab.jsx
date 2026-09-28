@@ -9,6 +9,7 @@ import { formatBytes } from '../../utils/formatBytes';
 import BandwidthSparkline from '../BandwidthSparkline';
 import ScheduledTasksCard from '../ScheduledTasksCard';
 import RequestMetricsCard from './RequestMetricsCard';
+import AttachmentsCard from './AttachmentsCard';
 import { KpiBand, MetricCard, Pill, Gauge, EnvTag, statusKind } from '@/components/ds';
 import { usePolling } from '@/hooks/usePolling';
 import { useTranslation } from 'react-i18next';
@@ -329,6 +330,9 @@ const OverviewTab = ({ app, deployConfig }) => {
 
             {/* Traffic (timed access log; hidden until requests exist) */}
             <RequestMetricsCard appId={app.id} />
+
+            {/* Cache / storage / queue this app uses (plan 86 §C4) */}
+            <AttachmentsCard app={app} />
 
             {/* Recent Deployments */}
             <div className="overview-tab__card overview-tab__card--full">

@@ -1,4 +1,9 @@
-"""Attach a service an app uses: object storage today (plan 86 §C2).
+"""Attach a service an app uses: storage, cache or queue (plan 86 §C2/§C4).
+
+Cache and queue attachments are env references only: the app gets the
+service's C1 ``url`` through ``fromService`` under the names its libraries
+read (``REDIS_URL``, ``AMQP_URL``/``BROKER_URL``). Storage is the one kind that
+provisions something, described below.
 
 "Attach storage" gives an app its own bucket on an installed Garage and a key
 that can read and write that bucket only (never the admin token, never another
@@ -52,6 +57,30 @@ def _storage_env(service_name: str, bucket: str, access_key_id: str,
     }
 
 
+# kind -> (offers(template, engine) -> bool, env keys for the service's url).
+# The env keys depend on what was attached: a Redis used as a queue is still
+# only a BROKER_URL, never an AMQP_URL.
+def _is_redis(template, engine):
+    return engine.get('protocol') == 'redis'
+
+
+def _is_amqp(template, engine):
+    return template.get('id') == 'rabbitmq'
+
+
+CONNECTION_KINDS = {
+    'cache': [(_is_redis, ('REDIS_URL',))],
+    'queue': [(_is_amqp, ('AMQP_URL', 'BROKER_URL')), (_is_redis, ('BROKER_URL',))],
+}
+
+# One line per kind, shown where the operator decides (plan 86 §C4).
+FAILURE_MODES = {
+    'storage': 'Objects outlive the app: detaching keeps the bucket and its data.',
+    'cache': 'Cached data can be stale; invalidate on write, and never keep the only copy in a cache.',
+    'queue': 'A job can be delivered twice; make jobs safe to run again.',
+}
+
+
 class AppAttachmentService:
 
     @staticmethod
@@ -82,6 +111,63 @@ class AppAttachmentService:
         from app.models.application import Application
         return [a for a in Application.query_active().order_by(Application.name).all()
                 if cls._provisioner(a) == 'garage']
+
+    @staticmethod
+    def _connection_env_keys(service_app, kind):
+        """The env keys ``service_app`` fills for ``kind``, or None when it
+        does not offer that kind."""
+        from app.services.service_connection_service import _template_for
+        from app.services.template_service import TemplateService
+        template = _template_for(service_app) or {}
+        engine = TemplateService.engine_metadata(template) or {}
+        for offers, keys in CONNECTION_KINDS.get(kind, []):
+            if offers(template, engine):
+                return keys
+        return None
+
+    @classmethod
+    def services_for(cls, kind):
+        """Installed services an app can attach as ``kind``."""
+        if kind == 'storage':
+            return cls.storage_services()
+        from app.models.application import Application
+        return [a for a in Application.query_active().order_by(Application.name).all()
+                if cls._connection_env_keys(a, kind)]
+
+    @classmethod
+    def attach(cls, app, service_app, kind, user_id=None):
+        if kind == 'storage':
+            return cls.attach_storage(app, service_app, user_id=user_id)
+        if kind not in CONNECTION_KINDS:
+            raise AttachmentError(f'Unknown attachment kind: {kind}')
+        return cls.attach_connection(app, service_app, kind, user_id=user_id)
+
+    @classmethod
+    def attach_connection(cls, app, service_app, kind, user_id=None):
+        """Point the app's env at ``service_app``'s URL for ``kind``."""
+        from app.models.app_attachment import AppAttachment
+        from app.services.env_service import EnvService
+
+        if service_app.id == app.id:
+            raise AttachmentError('A service cannot be attached to itself')
+        keys = cls._connection_env_keys(service_app, kind)
+        if not keys:
+            raise AttachmentError(f'{service_app.name} cannot be used as a {kind}')
+        existing = AppAttachment.query.filter_by(app_id=app.id, kind=kind).first()
+        if existing is not None:
+            if existing.service_app_id != service_app.id:
+                raise AttachmentError(f'This app already has a {kind} attached; detach it first')
+            return existing, False
+        ref = {'kind': 'service', 'service': service_app.name, 'property': 'url'}
+        for env_key in keys:
+            _v, _c, error = EnvService.set_env_reference(app.id, env_key, ref, user_id=user_id)
+            if error:
+                raise AttachmentError(f'Could not set {env_key}: {error}')
+        row = AppAttachment(app_id=app.id, service_app_id=service_app.id, kind=kind)
+        row.details = {'env_keys': list(keys)}
+        db.session.add(row)
+        db.session.commit()
+        return row, True
 
     # -- storage ---------------------------------------------------------------
 

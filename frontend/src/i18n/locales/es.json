@@ -6705,6 +6705,33 @@
             "p95": "Latencia p95",
             "requests": "Solicitudes",
             "title": "Tráfico"
+        },
+        "attachments": {
+            "attach": "Conectar",
+            "attachKind": "Conectar {{kind}}",
+            "attached": "Conectado. Vuelve a desplegar para aplicarlo.",
+            "detach": "Desconectar",
+            "detachConnection": "La app pierde la configuración que apunta a este servicio.",
+            "detachStorage": "La app pierde su clave y su configuración S3. El bucket y sus archivos se conservan.",
+            "detachTitle": "¿Desconectar {{name}}?",
+            "empty": "No hay nada conectado. Conecta una caché, almacenamiento de objetos o una cola y la app recibe su configuración de conexión como variables de entorno.",
+            "failureCache": "Los datos en caché pueden quedar obsoletos; invalídalos al escribir y nunca guardes la única copia en una caché.",
+            "failureQueue": "Un trabajo puede entregarse dos veces; haz que los trabajos se puedan repetir sin efectos.",
+            "failureStorage": "Los objetos sobreviven a la app: al desconectar se conservan el bucket y sus datos.",
+            "installAndAttach": "Instalar {{template}} y conectar",
+            "installFailed": "La instalación falló.",
+            "installNoId": "Instalado, pero no se encontró el nuevo servicio. Conéctalo desde la lista.",
+            "installing": "Instalando…",
+            "kindCache": "Caché",
+            "kindQueue": "Cola",
+            "kindStorage": "Almacenamiento",
+            "noneInstalled": "Todavía no hay ningún servicio de {{kind}} instalado. ServerKit puede instalar uno ahora.",
+            "noneInstalledAskAdmin": "Todavía no hay ningún servicio de {{kind}} instalado. Pide a un administrador que instale uno.",
+            "redeployHint": "La app aplica el cambio en su próximo despliegue.",
+            "redeployNow": "Volver a desplegar ahora",
+            "redeploying": "Despliegue iniciado.",
+            "service": "Servicio",
+            "title": "Servicios conectados"
         }
     },
     "auth": {

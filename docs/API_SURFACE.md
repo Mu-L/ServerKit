@@ -158,7 +158,7 @@ Regenerate (backend/):
 - `GET /api-keys/scopes`
 - `GET /api-keys/{key_id}`
 - `GET /apps`
-- `GET /apps/attachments/storage-services`
+- `GET /apps/attachments/services`
 - `GET /apps/p/{slug}`
 - `GET /apps/{app_id}`
 - `GET /apps/{app_id}/attachments`
@@ -773,7 +773,7 @@ Regenerate (backend/):
 - `POST /apps/scale-sweep`
 - `POST /apps/sweep-idle`
 - `POST /apps/upload`
-- `POST /apps/{app_id}/attachments/storage`
+- `POST /apps/{app_id}/attachments/{kind}`
 - `POST /apps/{app_id}/backups`
 - `POST /apps/{app_id}/backups/{run_id}/restore`
 - `POST /apps/{app_id}/backups/{run_id}/verify`

@@ -1,7 +1,7 @@
 """An app's attachment to a service it uses (plan 86 §C2/§C4).
 
-One row per (app, kind): the app's storage bucket on a Garage instance today;
-cache, queue and tracing attachments reuse the same row. ``details_json``
+One row per (app, kind): the app's storage bucket on a Garage instance, or
+the cache / queue it uses (env references only). ``details_json``
 holds what the provisioner created (bucket, key id, the vault secret that
 carries the key), so detaching can remove exactly that and nothing else. The
 secret itself never lands here.
@@ -21,7 +21,7 @@ class AppAttachment(JsonColumnMixin, db.Model):
         db.UniqueConstraint('app_id', 'kind', name='uq_app_attachments_app_kind'),
     )
 
-    KINDS = ('storage',)
+    KINDS = ('storage', 'cache', 'queue')
 
     id = db.Column(db.Integer, primary_key=True)
     app_id = db.Column(db.Integer, db.ForeignKey('applications.id', ondelete='CASCADE'),
@@ -60,5 +60,6 @@ class AppAttachment(JsonColumnMixin, db.Model):
             # Never the secret; the key id alone is safe to show.
             'bucket': details.get('bucket'),
             'access_key_id': details.get('access_key_id'),
+            'env_keys': details.get('env_keys') or [],
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
