@@ -243,6 +243,7 @@ Regenerate (backend/):
 - `GET /databases/docker/app/{app_id}`
 - `GET /databases/docker/databases`
 - `GET /databases/docker/{container}/databases`
+- `GET /databases/docker/{container}/insights`
 - `GET /databases/docker/{container}/processes`
 - `GET /databases/docker/{container}/{database}/tables`
 - `GET /databases/engines`
@@ -853,6 +854,7 @@ Regenerate (backend/):
 - `POST /dashboards`
 - `POST /dashboards/`
 - `POST /dashboards/{board_id}/reset`
+- `POST /databases/docker/{container}/insights/pg-stat-statements`
 - `POST /databases/docker/{container}/processes/{pid}/kill`
 - `POST /databases/docker/{container}/{database}/query`
 - `POST /databases/engines`

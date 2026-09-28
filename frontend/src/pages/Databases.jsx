@@ -4,7 +4,7 @@ import {
     PanelLeftClose, PanelLeftOpen, X, RefreshCw, Plus, Terminal,
     Archive, Database, Table2, Server, ChevronDown,
     Trash2, DatabaseBackup, Copy, FileCode2, Lock, BookMarked, Activity,
-    SlidersHorizontal, Layers, ExternalLink, Download,
+    SlidersHorizontal, Layers, ExternalLink, Download, Gauge,
 } from 'lucide-react';
 import api from '../services/api';
 import Modal from '@/components/Modal';
@@ -19,6 +19,7 @@ import ConsoleTab from '../components/databases/ConsoleTab';
 import TableDataTab from '../components/databases/TableDataTab';
 import BackupsTab from '../components/databases/BackupsTab';
 import ProcessListPanel from '../components/databases/ProcessListPanel';
+import InsightsPanel from '../components/databases/InsightsPanel';
 import ConfigTunerPanel from '../components/databases/ConfigTunerPanel';
 import {
     CreateDatabaseModal, CreateMySQLUserModal, CreatePostgreSQLUserModal,
@@ -80,6 +81,7 @@ function dockerDbNode(engine, db, i) {
 function TabIcon({ tab }) {
     if (tab.kind === 'backups') return <Archive size={13} aria-hidden="true" />;
     if (tab.kind === 'processes') return <Activity size={13} aria-hidden="true" />;
+    if (tab.kind === 'insights') return <Gauge size={13} aria-hidden="true" />;
     if (tab.kind === 'console') return <Terminal size={13} aria-hidden="true" />;
     return <Table2 size={13} aria-hidden="true" />;
 }
@@ -437,6 +439,14 @@ export default function Databases() {
         showTab(id);
     }
 
+    function openInsights(conn, engine) {
+        // One insights tab per container, like processes.
+        const id = `insights:${engine}:${conn.container}`;
+        setTabs((prev) => prev.some((t) => t.id === id) ? prev
+            : [...prev, { id, kind: 'insights', title: `Insights · ${conn.container}`, conn, engine }]);
+        showTab(id);
+    }
+
     function openBackups() {
         setTabs((prev) => prev.some((t) => t.id === 'backups') ? prev : [...prev, { id: 'backups', kind: 'backups', titleKey: 'common.labels.backups', title: 'Backups' }]);
         showTab('backups');
@@ -629,6 +639,8 @@ export default function Databases() {
                     if (node.conn?.dbType === 'docker' && node.conn.container) {
                         // Curated config tuner is container-scoped (docker-only).
                         actions.splice(2, 0, { labelKey: 'app.databases.configTuner', label: 'Config tuner', icon: SlidersHorizontal, onClick: () => setTunerTarget({ container: node.conn.container, engine: node.engine, password: node.conn.password }) });
+                        // Top queries + hit ratio (plan 86 §A3), docker-only too.
+                        actions.splice(2, 0, { labelKey: 'app.databases.insights', label: 'Insights', icon: Gauge, onClick: () => openInsights(node.conn, node.engine) });
                     }
                     actions.splice(2, 0, { labelKey: 'app.databases.backUpDatabase', label: 'Back up database', icon: DatabaseBackup, onClick: () => backupDatabase(node) });
                     actions.push({ labelKey: 'app.databases.dropDatabase', label: 'Drop database', icon: Trash2, danger: true, onClick: () => dropDatabase(node) });
@@ -951,6 +963,9 @@ export default function Databases() {
                                             active={tab.id === activeTabId}
                                             isAdmin={isAdmin}
                                         />
+                                    )}
+                                    {tab.kind === 'insights' && (
+                                        <InsightsPanel conn={tab.conn} engine={tab.engine} isAdmin={isAdmin} />
                                     )}
                                     {tab.kind === 'backups' && <BackupsTab />}
                                 </div>

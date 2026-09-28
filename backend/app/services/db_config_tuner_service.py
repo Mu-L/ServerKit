@@ -503,6 +503,54 @@ class DbConfigTunerService:
         return cls._restart_and_verify(target, backup, auto_conf, settings)
 
     @classmethod
+    def enable_pg_stat_statements(cls, target):
+        """Preload pg_stat_statements, restart, and create the extension
+        (plan 86 §A3), through the same backup/restart/verify path as
+        :meth:`apply`, so :meth:`rollback` undoes it.
+
+        ``shared_preload_libraries`` is a list: the current value is kept and
+        the library appended, never replaced.
+        """
+        cls._guard(target)
+        if target['engine'] != 'postgresql':
+            raise ValidationError('pg_stat_statements is a PostgreSQL extension')
+        res = cls._exec_sql(target, 'SHOW shared_preload_libraries;')
+        if not res['success']:
+            raise DependencyUnavailableError(res.get('error') or 'Could not read preload libraries')
+        first_line = ((res['output'] or '').strip().splitlines() or [''])[0]
+        current = [lib.strip().strip('"') for lib in first_line.split(',') if lib.strip().strip('"')]
+        if 'pg_stat_statements' in current:
+            created = cls._exec_sql(target, 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements;')
+            if not created['success']:
+                raise DependencyUnavailableError(created.get('error') or 'CREATE EXTENSION failed')
+            return {'success': True, 'restarted': False, 'already_preloaded': True}
+
+        res = cls._exec_sql(target, 'SHOW data_directory;')
+        data_dir = ((res.get('output') or '').strip().splitlines() or [''])[0].strip()
+        if not res['success'] or not data_dir:
+            raise DependencyUnavailableError(res.get('error') or 'Could not determine the data directory')
+        auto_conf = data_dir.rstrip('/') + '/postgresql.auto.conf'
+        backup = cls._snapshot_container_file(target, auto_conf, '.auto.conf')
+
+        libraries = ', '.join(current + ['pg_stat_statements'])
+        literal = "'" + libraries.replace("'", "''") + "'"
+        res = cls._exec_sql(target, f'ALTER SYSTEM SET shared_preload_libraries = {literal};')
+        if not res['success']:
+            cls._restore_container_file(target, backup, auto_conf)
+            raise DependencyUnavailableError(f"ALTER SYSTEM failed: {res['error']}")
+        with open(os.path.join(cls._state_dir(target, create=True), 'applied.json'), 'w') as fh:
+            json.dump({'auto_conf': auto_conf,
+                       'settings': {'shared_preload_libraries': libraries}}, fh)
+
+        result = cls._restart_and_verify(target, backup, auto_conf,
+                                         {'shared_preload_libraries': libraries})
+        created = cls._exec_sql(target, 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements;')
+        if not created['success']:
+            raise DependencyUnavailableError(
+                f"Preloaded, but CREATE EXTENSION failed: {created.get('error')}")
+        return result
+
+    @classmethod
     def _restart_and_verify(cls, target, backup, container_path, settings):
         """Shared apply tail: restart, ping, roll back on failure."""
         container = target['container']

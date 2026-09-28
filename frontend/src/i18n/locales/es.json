@@ -1392,7 +1392,8 @@
             "showSources": "Mostrar orígenes",
             "sqlConsole": "Consola SQL",
             "tableOrCollection": "Tabla o colección",
-            "utf8": "UTF-8"
+            "utf8": "UTF-8",
+            "insights": "Estadísticas"
         },
         "dbAdapter": {
             "dockerApps": "Apps de Docker",
@@ -6732,6 +6733,25 @@
             "redeploying": "Despliegue iniciado.",
             "service": "Servicio",
             "title": "Servicios conectados"
+        },
+        "dbInsights": {
+            "cacheHitMysql": "Tasa de aciertos del buffer pool de InnoDB",
+            "cacheHitPg": "Tasa de aciertos de la caché de búferes",
+            "calls": "Llamadas",
+            "connections": "Conexiones",
+            "enable": "Activar pg_stat_statements",
+            "enableAndRestart": "Activar y reiniciar",
+            "enableMessage": "PostgreSQL se reinicia una vez para cargar la extensión; las conexiones abiertas se cortan. El cambio se puede deshacer desde el ajustador de configuración.",
+            "enableTitle": "Activar pg_stat_statements",
+            "enabled": "pg_stat_statements está activo. Las consultas aparecen a medida que se ejecutan.",
+            "enabling": "Reiniciando…",
+            "failedToLoad": "No se pudieron cargar las estadísticas",
+            "mean": "Media",
+            "noQueriesYet": "Todavía no hay sentencias registradas.",
+            "query": "Consulta",
+            "rows": "Filas",
+            "topQueries": "Consultas principales por tiempo total",
+            "total": "Total"
         }
     },
     "auth": {

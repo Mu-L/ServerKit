@@ -1580,6 +1580,7 @@
             "filterTables": "Filter tables…",
             "hideSources": "Hide sources",
             "importSqlDump": "Import SQL dump…",
+            "insights": "Insights",
             "installADatabaseEngine": "Install a database engine…",
             "installADatabaseEngine2": "Install a database engine",
             "managed": "Managed",
@@ -1636,6 +1637,25 @@
             "viewInstallLog": "View install log",
             "wasCreatedOnInstall": "was created on install",
             "willBeCreatedOnceTheEngine": "will be created once the engine reports healthy"
+        },
+        "dbInsights": {
+            "cacheHitMysql": "InnoDB buffer pool hit ratio",
+            "cacheHitPg": "Buffer cache hit ratio",
+            "calls": "Calls",
+            "connections": "Connections",
+            "enable": "Enable pg_stat_statements",
+            "enableAndRestart": "Enable and restart",
+            "enableMessage": "PostgreSQL restarts once to load the extension; open connections drop. The change can be undone from the config tuner.",
+            "enableTitle": "Enable pg_stat_statements",
+            "enabled": "pg_stat_statements is on. Queries show up as they run.",
+            "enabling": "Restarting…",
+            "failedToLoad": "Failed to load insights",
+            "mean": "Mean",
+            "noQueriesYet": "No statements recorded yet.",
+            "query": "Query",
+            "rows": "Rows",
+            "topQueries": "Top queries by total time",
+            "total": "Total"
         },
         "dbUsersPanel": {
             "drop": "Drop",
