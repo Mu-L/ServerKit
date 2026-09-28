@@ -194,18 +194,20 @@ class TestBuiltins:
         # Per-app request rollups (plan 86 §A2): a builtin so its once-a-minute
         # successes get the 24 h tick retention.
         assert 'builtin.request_metrics' in kinds
-        assert len([k for k in kinds if k.startswith('builtin.')]) == 19
+        # Crash-loop visibility (plan 86 §E1), also once a minute.
+        assert 'builtin.crash_loop' in kinds
+        assert len([k for k in kinds if k.startswith('builtin.')]) == 20
 
         builtin_handlers.seed_builtin_schedules()
-        # 19 builtin.* schedules (incl. the request-metrics tick, restore-point/job/telemetry retention,
+        # 20 builtin.* schedules (incl. the request-metrics and crash-loop ticks, restore-point/job/telemetry retention,
         # the monitor sweep, security-feed check, recycle-bin retention and the
         # fleet threshold check) + login-link/SSO reapers + drift/FIM/bandwidth
         # sweeps + the host doctor sweep AND the fleet doctor sweep (plan 26)
         # + the setup-health nag (plan 22).
-        assert ScheduledJob.query.count() == 27
+        assert ScheduledJob.query.count() == 28
         # Seeding twice doesn't duplicate.
         builtin_handlers.seed_builtin_schedules()
-        assert ScheduledJob.query.count() == 27
+        assert ScheduledJob.query.count() == 28
 
 
 class TestApi:

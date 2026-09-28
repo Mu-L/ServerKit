@@ -25,6 +25,12 @@ export default function HintsCard({ app }) {
     const text = (hint) => {
         const p = hint.params || {};
         switch (hint.id) {
+        case 'crash_loop':
+            return {
+                signal: t('app.hints.crashLoopSignal', '{{count}} restarts in the last 10 minutes.', { count: p.restarts }),
+                hint: t('app.hints.crashLoop', 'The app keeps crashing and Docker keeps restarting it. Read its logs from just before a restart; no cache or database change helps until it stays up.'),
+                failure: t('app.hints.crashLoopFailure', 'A restart policy hides a crash: the app looks running between crashes.'),
+            };
         case 'app_bound':
             return {
                 signal: t('app.hints.appBoundSignal', 'p95 {{ms}} ms while the app uses {{cpu}}% CPU and its database is idle.', { ms: p.p95_ms, cpu: p.cpu }),
@@ -60,10 +66,11 @@ export default function HintsCard({ app }) {
 
     const actionLink = (action) => {
         if (!action) return null;
-        const label = action.target === 'settings/cache'
-            ? t('app.hints.openMicroCache', 'Open micro-cache settings')
-            : t('app.hints.attachCache', 'Attach a cache');
-        const to = action.target === 'settings/cache' ? `/services/${app.id}/settings/cache` : null;
+        const targets = {
+            'settings/cache': { to: `/services/${app.id}/settings/cache`, label: t('app.hints.openMicroCache', 'Open micro-cache settings') },
+            logs: { to: `/services/${app.id}/logs`, label: t('app.hints.openLogs', 'Open logs') },
+        };
+        const { to = null, label = t('app.hints.attachCache', 'Attach a cache') } = targets[action.target] || {};
         return to
             ? <Link to={to} className="hints__action">{label}</Link>
             : <span className="hints__action hints__action--here">{label}</span>;

@@ -6791,7 +6791,11 @@
             "lowHitSignal": "Tasa de aciertos de la microcaché: {{ratio}}%.",
             "openMicroCache": "Abrir ajustes de microcaché",
             "title": "Dónde va lento",
-            "window": "Últimas 24 horas"
+            "window": "Últimas 24 horas",
+            "crashLoop": "La app sigue fallando y Docker la sigue reiniciando. Lee sus registros de justo antes de un reinicio; ningún cambio de caché o de base de datos ayuda hasta que se mantenga en pie.",
+            "crashLoopFailure": "Una política de reinicio oculta un fallo: la app parece en marcha entre fallos.",
+            "crashLoopSignal": "{{count}} reinicios en los últimos 10 minutos.",
+            "openLogs": "Abrir registros"
         }
     },
     "auth": {

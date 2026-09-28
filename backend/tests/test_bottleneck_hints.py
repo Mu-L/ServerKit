@@ -22,7 +22,9 @@ def _metrics(p95=1500, requests=1000, ratio=None, points=()):
 
 @pytest.fixture
 def signals(monkeypatch):
-    state = {'metrics': _metrics(), 'cpu': {}, 'dbs': [], 'share': None, 'windows': []}
+    state = {'metrics': _metrics(), 'cpu': {}, 'dbs': [], 'share': None, 'windows': [],
+             'loop': {}}
+    monkeypatch.setattr(H, '_crash_loop', staticmethod(lambda app: state['loop']))
     monkeypatch.setattr(H, '_metrics', staticmethod(lambda app: state['metrics']))
     monkeypatch.setattr(H, 'cpu_percent', staticmethod(lambda name: state['cpu'].get(name)))
     monkeypatch.setattr(H, '_databases', staticmethod(lambda app: state['dbs']))
@@ -142,3 +144,10 @@ def test_every_hint_carries_params_for_a_translated_ui(signals):
     signals['cpu'] = {'shop': 95}
     (hint,) = H.hints(_app(), now=NOW)
     assert hint['params'] == {'p95_ms': 1500, 'cpu': 95}
+
+
+def test_a_crash_loop_comes_first_even_without_traffic(signals):
+    signals['metrics'] = _metrics(requests=0)
+    signals['loop'] = {'looping': True, 'restarts_in_window': 5}
+    (hint,) = H.hints(_app(), now=NOW)
+    assert hint['id'] == 'crash_loop' and hint['params'] == {'restarts': 5}

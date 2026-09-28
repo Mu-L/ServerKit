@@ -107,12 +107,31 @@ class BottleneckHintsService:
 
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _crash_loop(app) -> Dict:
+        from app.services.crash_loop_service import CrashLoopService
+        return CrashLoopService.state_for(app)
+
     @classmethod
     def hints(cls, app, now: Optional[datetime] = None) -> List[Dict]:
         now = now or datetime.utcnow()
+        hints: List[Dict] = []
+        loop = cls._crash_loop(app)
+        if loop.get('looping'):
+            # Before any traffic rule: a crashing app has no meaningful p95.
+            hints.append({
+                'id': 'crash_loop',
+                'params': {'restarts': loop.get('restarts_in_window') or 0},
+                'signal': f"{loop.get('restarts_in_window') or 0} restarts in the last 10 minutes",
+                'hint': 'The app keeps crashing and Docker keeps restarting it. Read its '
+                        'logs from just before a restart; no cache or database change helps '
+                        'until it stays up.',
+                'action': {'label': 'Logs', 'target': 'logs'},
+                'failure_mode': 'A restart policy hides a crash: the app looks running '
+                                'between crashes.',
+            })
         metrics = cls._metrics(app)
         summary = metrics.get('summary') or {}
-        hints: List[Dict] = []
         if (summary.get('requests') or 0) < MIN_REQUESTS:
             return hints
 
