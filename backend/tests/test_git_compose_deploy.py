@@ -212,3 +212,22 @@ def test_pull_reaches_a_branch_the_single_branch_clone_never_fetched(tmp_path, m
     result = GitService.pull_changes(str(work), 'next')
     assert result['success'], result
     assert (work / 'VERSION').read_text() == '1.0.1\n'
+
+
+def test_a_successful_deploy_emits_app_deployed(app, calls):
+    """The extension-to-core path (plan 86 §B4): listeners hear every deploy."""
+    from app.models.domain import Domain
+    from app.services import event_service
+    heard = []
+    row = _app()
+    db.session.add(Domain(name='bench.lvh.me', application_id=row.id, is_primary=True))
+    db.session.commit()
+    listener = heard.append
+    event_service.register_listener('app.deployed', listener, source='test-ext')
+    try:
+        assert DeploymentService.deploy(row.id)['success']
+    finally:
+        event_service.unregister_listeners('test-ext')
+    (payload,) = heard
+    assert payload['app_id'] == row.id and payload['domains'] == ['bench.lvh.me']
+    assert payload['version'] >= 1

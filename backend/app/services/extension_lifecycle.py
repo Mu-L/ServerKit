@@ -220,6 +220,7 @@ def unregister_capabilities(plugin):
     try:
         from app.services import event_service
         event_service.unregister_event_types(slug)
+        event_service.unregister_listeners(slug)
     except Exception as e:
         logger.warning(f'Event-type teardown failed for {slug}: {e}')
     try:

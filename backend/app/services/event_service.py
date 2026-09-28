@@ -112,6 +112,40 @@ def unregister_event_types(source):
     return len(doomed)
 
 
+# In-process listeners (plan 86 §B4): the extension-to-core event path. An
+# extension's core_hooks registers a callable for an event type; every emit of
+# that type calls it with the payload, best-effort, whether or not any webhook
+# subscription exists. event type -> [(fn, source slug)].
+_LISTENERS = {}
+
+
+def register_listener(event_type, fn, source=None):
+    """Call ``fn(payload)`` on every ``event_type`` emit. Idempotent per
+    (event type, fn) so per-boot re-registration never doubles a call."""
+    entries = _LISTENERS.setdefault(event_type, [])
+    if any(existing is fn for existing, _ in entries):
+        return
+    entries.append((fn, source))
+
+
+def unregister_listeners(source):
+    """Drop every listener ``source`` registered (disable/uninstall)."""
+    removed = 0
+    for event_type in list(_LISTENERS):
+        kept = [(fn, s) for fn, s in _LISTENERS[event_type] if s != source]
+        removed += len(_LISTENERS[event_type]) - len(kept)
+        _LISTENERS[event_type] = kept
+    return removed
+
+
+def _notify_listeners(event_type, payload):
+    for fn, source in list(_LISTENERS.get(event_type, [])):
+        try:
+            fn(payload)
+        except Exception as e:  # noqa: BLE001 - a listener never breaks the emitter
+            logger.warning(f'Event listener from {source} failed on {event_type}: {e}')
+
+
 def clear_registered_event_types():
     """Drop every extension-registered event type. Tests only."""
     _EXTENSION_EVENT_TYPES.clear()
@@ -144,7 +178,8 @@ class EventService:
 
     @staticmethod
     def emit(event_type, payload, user_id=None):
-        """Emit an event to all matching subscriptions."""
+        """Emit an event to in-process listeners and all matching subscriptions."""
+        _notify_listeners(event_type, payload)
         subscriptions = EventSubscription.query.filter_by(is_active=True).all()
         matching = [s for s in subscriptions if s.matches_event(event_type)]
 
