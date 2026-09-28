@@ -21,7 +21,7 @@ class AppAttachment(JsonColumnMixin, db.Model):
         db.UniqueConstraint('app_id', 'kind', name='uq_app_attachments_app_kind'),
     )
 
-    KINDS = ('storage', 'cache', 'queue', 'metrics', 'logs')
+    KINDS = ('storage', 'cache', 'queue', 'tracing', 'metrics', 'logs', 'traces')
 
     id = db.Column(db.Integer, primary_key=True)
     app_id = db.Column(db.Integer, db.ForeignKey('applications.id', ondelete='CASCADE'),

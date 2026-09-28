@@ -57,15 +57,24 @@ def _storage_env(service_name: str, bucket: str, access_key_id: str,
     }
 
 
-# kind -> (offers(template, engine) -> bool, env keys for the service's url).
-# The env keys depend on what was attached: a Redis used as a queue is still
-# only a BROKER_URL, never an AMQP_URL.
+# kind -> [(offers(template, engine) -> bool, {env key: source})]. A source is
+# the service property to reference, or '=literal' for a fixed value. The env
+# depends on what was attached: a Redis used as a queue is still only a
+# BROKER_URL, never an AMQP_URL.
 def _is_redis(template, engine):
     return engine.get('protocol') == 'redis'
 
 
 def _is_amqp(template, engine):
     return template.get('id') == 'rabbitmq'
+
+
+def _is_otel_collector(template, engine):
+    return template.get('id') == 'otel-collector'
+
+
+def _is_jaeger(template, engine):
+    return template.get('id') == 'jaeger'
 
 
 def _is_prometheus(template, engine):
@@ -82,9 +91,18 @@ GRAFANA_KINDS = {'metrics': _is_prometheus, 'logs': _is_loki}
 
 
 CONNECTION_KINDS = {
-    'cache': [(_is_redis, ('REDIS_URL',))],
-    'queue': [(_is_amqp, ('AMQP_URL', 'BROKER_URL')), (_is_redis, ('BROKER_URL',))],
+    'cache': [(_is_redis, {'REDIS_URL': 'url'})],
+    'queue': [(_is_amqp, {'AMQP_URL': 'url', 'BROKER_URL': 'url'}),
+              (_is_redis, {'BROKER_URL': 'url'})],
+    # The standard OpenTelemetry SDK variables (plan 86 §A4).
+    'tracing': [(_is_otel_collector, {'OTEL_EXPORTER_OTLP_ENDPOINT': 'otlpEndpoint',
+                                      'OTEL_EXPORTER_OTLP_PROTOCOL': '=http/protobuf'})],
+    # Collector -> trace store; read by the collector template's config.
+    'traces': [(_is_jaeger, {'TRACES_OTLP_ENDPOINT': 'otlpGrpc'})],
 }
+
+# Kinds only one consumer template can take.
+CONSUMER_ONLY = {'traces': 'otel-collector'}
 
 # One line per kind, shown where the operator decides (plan 86 §C4).
 FAILURE_MODES = {
@@ -93,6 +111,8 @@ FAILURE_MODES = {
     'queue': 'A job can be delivered twice; make jobs safe to run again.',
     'metrics': 'Grafana shows what Prometheus kept: past its retention, history is gone.',
     'logs': 'Grafana shows what Loki kept: past its retention, logs are gone.',
+    'tracing': 'Spans are sampled and batched: a trace can be partial, and a crash can lose the last batch.',
+    'traces': 'Jaeger keeps traces on its own disk; losing that volume loses the history.',
 }
 
 
@@ -128,16 +148,16 @@ class AppAttachmentService:
                 if cls._provisioner(a) == 'garage']
 
     @staticmethod
-    def _connection_env_keys(service_app, kind):
-        """The env keys ``service_app`` fills for ``kind``, or None when it
-        does not offer that kind."""
+    def _connection_env(service_app, kind):
+        """``{env key: source}`` ``service_app`` fills for ``kind``, or None
+        when it does not offer that kind."""
         from app.services.service_connection_service import _template_for
         from app.services.template_service import TemplateService
         template = _template_for(service_app) or {}
         engine = TemplateService.engine_metadata(template) or {}
-        for offers, keys in CONNECTION_KINDS.get(kind, []):
+        for offers, env in CONNECTION_KINDS.get(kind, []):
             if offers(template, engine):
-                return keys
+                return env
         return None
 
     @staticmethod
@@ -151,9 +171,11 @@ class AppAttachmentService:
     def kinds_for(cls, app_row):
         """What ``app_row`` can attach: every app takes cache / storage / queue;
         a Grafana install also takes metrics and logs data sources."""
-        kinds = ['cache', 'storage', 'queue']
-        if cls.is_grafana(app_row):
+        kinds = ['cache', 'storage', 'queue', 'tracing']
+        template_id = cls._template_and_engine(app_row)[0].get('id')
+        if template_id == 'grafana':
             kinds += list(GRAFANA_KINDS)
+        kinds += [k for k, only in CONSUMER_ONLY.items() if only == template_id]
         return kinds
 
     @classmethod
@@ -171,7 +193,7 @@ class AppAttachmentService:
                     if GRAFANA_KINDS[kind](*cls._template_and_engine(a))]
         from app.models.application import Application
         return [a for a in Application.query_active().order_by(Application.name).all()
-                if cls._connection_env_keys(a, kind)]
+                if cls._connection_env(a, kind)]
 
     @classmethod
     def attach(cls, app, service_app, kind, user_id=None):
@@ -191,21 +213,27 @@ class AppAttachmentService:
 
         if service_app.id == app.id:
             raise AttachmentError('A service cannot be attached to itself')
-        keys = cls._connection_env_keys(service_app, kind)
-        if not keys:
+        only = CONSUMER_ONLY.get(kind)
+        if only and cls._template_and_engine(app)[0].get('id') != only:
+            raise AttachmentError(f'Only a {only} install can attach {kind}')
+        env = cls._connection_env(service_app, kind)
+        if not env:
             raise AttachmentError(f'{service_app.name} cannot be used as a {kind}')
         existing = AppAttachment.query.filter_by(app_id=app.id, kind=kind).first()
         if existing is not None:
             if existing.service_app_id != service_app.id:
                 raise AttachmentError(f'This app already has a {kind} attached; detach it first')
             return existing, False
-        ref = {'kind': 'service', 'service': service_app.name, 'property': 'url'}
-        for env_key in keys:
-            _v, _c, error = EnvService.set_env_reference(app.id, env_key, ref, user_id=user_id)
+        for env_key, source in env.items():
+            if source.startswith('='):
+                _v, _c, error = EnvService.set_env_var(app.id, env_key, source[1:], user_id=user_id)
+            else:
+                ref = {'kind': 'service', 'service': service_app.name, 'property': source}
+                _v, _c, error = EnvService.set_env_reference(app.id, env_key, ref, user_id=user_id)
             if error:
                 raise AttachmentError(f'Could not set {env_key}: {error}')
         row = AppAttachment(app_id=app.id, service_app_id=service_app.id, kind=kind)
-        row.details = {'env_keys': list(keys)}
+        row.details = {'env_keys': list(env)}
         db.session.add(row)
         db.session.commit()
         return row, True

@@ -276,8 +276,9 @@ class FakeGrafana:
 
 def test_grafana_gets_metrics_and_logs_kinds_and_others_do_not(installed):
     graf, web = installed('graf', 'grafana'), installed('web')
-    assert AppAttachmentService.kinds_for(graf) == ['cache', 'storage', 'queue', 'metrics', 'logs']
-    assert AppAttachmentService.kinds_for(web) == ['cache', 'storage', 'queue']
+    assert AppAttachmentService.kinds_for(graf) == ['cache', 'storage', 'queue', 'tracing',
+                                                    'metrics', 'logs']
+    assert AppAttachmentService.kinds_for(web) == ['cache', 'storage', 'queue', 'tracing']
 
 
 def test_metrics_attach_creates_a_data_source_and_the_dashboard(installed):
@@ -326,3 +327,26 @@ def test_the_bundled_dashboard_charts_the_metrics_the_panel_exports():
     with open(DASHBOARD_PATH, encoding='utf-8') as fh:
         used = set(re.findall(r'serverkit_[a-z_]+', fh.read()))
     assert used and used <= exported, used - exported
+
+
+# ── tracing (plan 86 §A4) ─────────────────────────────────────────────────────
+
+def test_tracing_sets_the_standard_otel_variables(installed):
+    otel, web = installed('otel', 'otel-collector'), installed('web')
+    row, _ = AppAttachmentService.attach(web, otel, 'tracing')
+    env = EnvService.get_effective_env(web.id)
+    assert env['OTEL_EXPORTER_OTLP_ENDPOINT'] == 'http://otel:4318'
+    assert env['OTEL_EXPORTER_OTLP_PROTOCOL'] == 'http/protobuf'
+    AppAttachmentService.detach(row)
+    assert 'OTEL_EXPORTER_OTLP_PROTOCOL' not in EnvService.get_effective_env(web.id)
+
+
+def test_only_a_collector_forwards_traces_to_jaeger(installed):
+    otel, jaeger, web = (installed('otel', 'otel-collector'), installed('jaeger1', 'jaeger'),
+                         installed('web'))
+    assert 'traces' in AppAttachmentService.kinds_for(otel)
+    assert 'traces' not in AppAttachmentService.kinds_for(web)
+    with pytest.raises(AttachmentError, match='Only a otel-collector'):
+        AppAttachmentService.attach(web, jaeger, 'traces')
+    AppAttachmentService.attach(otel, jaeger, 'traces')
+    assert EnvService.get_effective_env(otel.id)['TRACES_OTLP_ENDPOINT'] == 'jaeger1:4317'

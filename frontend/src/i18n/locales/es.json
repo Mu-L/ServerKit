@@ -6737,7 +6737,11 @@
             "failureMetrics": "Grafana muestra lo que Prometheus conservó: pasado su periodo de retención, el historial desaparece.",
             "grafanaDataSource": "Fuente de datos de Grafana",
             "kindLogs": "Registros",
-            "kindMetrics": "Métricas"
+            "kindMetrics": "Métricas",
+            "failureTraces": "Jaeger guarda las trazas en su propio disco; perder ese volumen es perder el historial.",
+            "failureTracing": "Los spans se muestrean y se agrupan: una traza puede quedar incompleta y un fallo puede perder el último lote.",
+            "kindTraces": "Almacén de trazas",
+            "kindTracing": "Trazas"
         },
         "dbInsights": {
             "cacheHitMysql": "Tasa de aciertos del buffer pool de InnoDB",
