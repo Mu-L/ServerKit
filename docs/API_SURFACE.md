@@ -178,6 +178,7 @@ Regenerate (backend/):
 - `GET /apps/{app_id}/grants`
 - `GET /apps/{app_id}/linked`
 - `GET /apps/{app_id}/logs`
+- `GET /apps/{app_id}/pooler`
 - `GET /apps/{app_id}/previews`
 - `GET /apps/{app_id}/previews/settings`
 - `GET /apps/{app_id}/private-url`
@@ -1288,6 +1289,7 @@ Regenerate (backend/):
 - `PUT /apps/{app_id}/env/{key}`
 - `PUT /apps/{app_id}/environment`
 - `PUT /apps/{app_id}/micro-cache`
+- `PUT /apps/{app_id}/pooler`
 - `PUT /apps/{app_id}/previews/settings`
 - `PUT /apps/{app_id}/private-url`
 - `PUT /apps/{app_id}/resources`

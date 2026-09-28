@@ -555,3 +555,12 @@ export async function attachService(appId, kind, serviceAppId) {
 export async function detachService(appId, attachmentId) {
     return this.request(`/apps/${appId}/attachments/${attachmentId}`, { method: 'DELETE' });
 }
+
+// Opt-in PgBouncer beside an installed PostgreSQL (plan 86 §D1).
+export async function getAppPooler(appId) {
+    return this.request(`/apps/${appId}/pooler`);
+}
+
+export async function setAppPooler(appId, enabled) {
+    return this.request(`/apps/${appId}/pooler`, { method: 'PUT', body: { enabled } });
+}

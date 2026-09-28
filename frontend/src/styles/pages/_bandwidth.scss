@@ -244,3 +244,16 @@
         color: var(--red);
     }
 }
+
+// Service detail Overview: Connection pooling card (plan 86 §D1).
+// Component: service-detail/PoolerCard.
+.pooler {
+    &__hint,
+    &__tradeoff {
+        margin: 0 0 6px;
+        font-size: 12.5px;
+        color: var(--text-dim);
+    }
+
+    &__tradeoff { color: var(--text-faint); }
+}

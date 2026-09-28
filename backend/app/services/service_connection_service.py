@@ -138,6 +138,13 @@ class ServiceConnectionService:
             properties.update({'host': ctx['host'], 'port': ctx['port'],
                                'password': password})
 
+        if protocol == 'postgresql' and getattr(app, 'pooler_enabled', False):
+            # Through the PgBouncer sidecar (plan 86 §D1); same credentials.
+            from app.services.pooler_service import container_name
+            pooled = _URL_PROTOCOLS['postgresql'].format(
+                userinfo=userinfo, **dict(ctx, host=container_name(app), port='5432'))
+            properties.update({'pooledUrl': pooled, 'pooledConnectionString': pooled})
+
         for name, raw in (declared.get('properties') or {}).items():
             properties[str(name)] = cls._render(str(raw), ctx, variables)
         return {'host': ctx['host'], 'port': ctx['port'], 'properties': properties}

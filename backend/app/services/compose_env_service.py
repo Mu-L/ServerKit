@@ -204,6 +204,16 @@ class ComposeEnvService:
             services_block.setdefault(name, {})['networks'] = {
                 'default': {}, SHARED_NETWORK: {}}
 
+        # Opt-in PgBouncer beside a PostgreSQL engine (plan 86 §D1): a whole
+        # extra service, reachable from apps over the shared network only.
+        from app.services import pooler_service
+        pooler = pooler_service.sidecar(app, services)
+        if pooler:
+            pooler['networks'] = {'default': {}, SHARED_NETWORK: {}}
+            pooler['environment'] = {k: cls._escape(v) for k, v in pooler['environment'].items()}
+            services_block[pooler_service.POOLER_SERVICE] = pooler
+            joined = joined or [pooler_service.POOLER_SERVICE]
+
         if not services_block:
             # Nothing to inject → no override should exist.
             return {'applies': True, 'path': override_path, 'content': None}

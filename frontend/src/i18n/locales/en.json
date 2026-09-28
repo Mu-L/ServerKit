@@ -3802,6 +3802,14 @@
         "pipelineStrip": {
             "deploymentSteps": "Deployment steps"
         },
+        "pooler": {
+            "hint": "Runs PgBouncer in transaction mode beside this database, so many app connections share a few server connections. Apps opt in by referencing pooledUrl instead of connectionString.",
+            "off": "Pooler removed.",
+            "on": "Pooler running at {{host}}:5432.",
+            "savedNotApplied": "Saved, but the pooler could not be started. Check the containers.",
+            "title": "Connection pooling",
+            "tradeoff": "Transaction pooling breaks session features: prepared statements in some drivers, LISTEN/NOTIFY, advisory locks and session SET. Apps keep the direct connection unless they switch."
+        },
         "previewDrawer": {
             "copyPath": "Copy path",
             "downloadFile": "Download File",

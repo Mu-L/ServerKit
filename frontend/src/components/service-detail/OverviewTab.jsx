@@ -10,6 +10,7 @@ import BandwidthSparkline from '../BandwidthSparkline';
 import ScheduledTasksCard from '../ScheduledTasksCard';
 import RequestMetricsCard from './RequestMetricsCard';
 import AttachmentsCard from './AttachmentsCard';
+import PoolerCard from './PoolerCard';
 import { KpiBand, MetricCard, Pill, Gauge, EnvTag, statusKind } from '@/components/ds';
 import { usePolling } from '@/hooks/usePolling';
 import { useTranslation } from 'react-i18next';
@@ -333,6 +334,9 @@ const OverviewTab = ({ app, deployConfig }) => {
 
             {/* Cache / storage / queue this app uses (plan 86 §C4) */}
             <AttachmentsCard app={app} />
+
+            {/* PgBouncer beside an installed PostgreSQL (plan 86 §D1) */}
+            <PoolerCard app={app} />
 
             {/* Recent Deployments */}
             <div className="overview-tab__card overview-tab__card--full">

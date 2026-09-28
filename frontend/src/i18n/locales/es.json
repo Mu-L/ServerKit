@@ -6761,6 +6761,14 @@
             "rows": "Filas",
             "topQueries": "Consultas principales por tiempo total",
             "total": "Total"
+        },
+        "pooler": {
+            "hint": "Ejecuta PgBouncer en modo transacción junto a esta base de datos, para que muchas conexiones de la app compartan unas pocas conexiones del servidor. Las apps lo usan referenciando pooledUrl en lugar de connectionString.",
+            "off": "Pooler eliminado.",
+            "on": "Pooler en marcha en {{host}}:5432.",
+            "savedNotApplied": "Guardado, pero no se pudo iniciar el pooler. Revisa los contenedores.",
+            "title": "Agrupación de conexiones",
+            "tradeoff": "La agrupación por transacción rompe funciones de sesión: sentencias preparadas en algunos drivers, LISTEN/NOTIFY, bloqueos consultivos y SET de sesión. Las apps mantienen la conexión directa salvo que cambien."
         }
     },
     "auth": {

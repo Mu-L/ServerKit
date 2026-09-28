@@ -88,3 +88,34 @@ def detach(app_id, attachment_id):
     if warning:
         body['warning'] = warning
     return jsonify(body)
+
+
+# ==================== CONNECTION POOLING (plan 86 §D1) ====================
+
+@app_attachments_bp.route('/<int:app_id>/pooler', methods=['GET'])
+@viewer_required
+def get_pooler(app_id):
+    from app.services import pooler_service
+    app = AppAttachmentService.live_app(app_id)
+    if app is None or not ResourceGrantService.can_access_app(get_current_user(), app):
+        raise NotFoundError('Application not found')
+    return jsonify({'available': pooler_service.is_postgres_engine(app),
+                    'enabled': bool(app.pooler_enabled),
+                    'host': pooler_service.container_name(app),
+                    'tradeoff': pooler_service.TRADEOFF})
+
+
+@app_attachments_bp.route('/<int:app_id>/pooler', methods=['PUT'])
+@developer_required
+def set_pooler(app_id):
+    from app.services import pooler_service
+    app = AppAttachmentService.live_app(app_id)
+    if app is None or not ResourceGrantService.can_edit_app(get_current_user(), app):
+        raise NotFoundError('Application not found')
+    if not pooler_service.is_postgres_engine(app):
+        raise ValidationError('Connection pooling is for an installed PostgreSQL')
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data.get('enabled'), bool):
+        raise ValidationError("'enabled' must be true or false")
+    result = pooler_service.set_enabled(app, data['enabled'])
+    return jsonify(result)
