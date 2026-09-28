@@ -225,10 +225,6 @@ export async function getNginxProxyRules(domain) {
     return this.request(`/nginx/advanced/proxy/${domain}`);
 }
 
-export async function createNginxProxy(data) {
-    return this.request('/nginx/advanced/proxy', { method: 'POST', body: data });
-}
-
 export async function testAdvancedNginxConfig() {
     return this.request('/nginx/advanced/test', { method: 'POST' });
 }
@@ -245,10 +241,6 @@ export async function previewNginxDiff(domain, config) {
 
 export async function getNginxVhostLogs(domain, type = 'access', lines = 100) {
     return this.request(`/nginx/advanced/logs/${domain}?type=${encodeURIComponent(type)}&lines=${encodeURIComponent(lines)}`);
-}
-
-export async function getNginxLBMethods() {
-    return this.request('/nginx/advanced/lb-methods');
 }
 
 // Log endpoints
