@@ -6769,6 +6769,26 @@
             "savedNotApplied": "Guardado, pero no se pudo iniciar el pooler. Revisa los contenedores.",
             "title": "Agrupación de conexiones",
             "tradeoff": "La agrupación por transacción rompe funciones de sesión: sentencias preparadas en algunos drivers, LISTEN/NOTIFY, bloqueos consultivos y SET de sesión. Las apps mantienen la conexión directa salvo que cambien."
+        },
+        "hints": {
+            "appBound": "El cuello de botella es la propia app. Guarda páginas completas en caché delante de ella o dale una máquina más grande.",
+            "appBoundFailure": "Una página en caché puede estar desactualizada hasta que caduque.",
+            "appBoundSignal": "p95 de {{ms}} ms mientras la app usa {{cpu}}% de CPU y su base de datos está inactiva.",
+            "attachCache": "Conectar una caché",
+            "dbBound": "El cuello de botella es la base de datos. Revisa sus consultas principales por si falta un índice, o guarda en caché lo que más se lee.",
+            "dbBoundFailure": "Los datos en caché pueden quedar obsoletos; invalídalos al escribir.",
+            "dbBoundRepeated": "Domina la misma consulta: guarda su resultado en caché o añade un índice para ella (mira la consulta en la pestaña Estadísticas de la base de datos).",
+            "dbBoundSignal": "p95 de {{ms}} ms mientras {{db}} usa {{cpu}}% de CPU.",
+            "dbBoundSignalShare": "p95 de {{ms}} ms mientras {{db}} usa {{cpu}}% de CPU; una consulta ocupa el {{share}}% de su tiempo.",
+            "deployErrors": "Los visitantes caen en el hueco mientras el contenedor antiguo se detiene y arranca el nuevo. Los despliegues por ranuras mantendrán la copia antigua sirviendo hasta que la nueva pase su comprobación de salud.",
+            "deployErrorsFailure": "Durante el cambio corren dos copias un momento; una migración debe funcionar con ambas.",
+            "deployErrorsSignal": "{{count}} errores de servidor durante despliegues en las últimas 24 horas.",
+            "lowHit": "La mayoría de las solicitudes cacheables fallan. Las páginas pueden variar por visitante o la duración de la caché es demasiado corta para el tráfico.",
+            "lowHitFailure": "Una duración mayor sirve páginas más antiguas.",
+            "lowHitSignal": "Tasa de aciertos de la microcaché: {{ratio}}%.",
+            "openMicroCache": "Abrir ajustes de microcaché",
+            "title": "Dónde va lento",
+            "window": "Últimas 24 horas"
         }
     },
     "auth": {

@@ -176,6 +176,7 @@ Regenerate (backend/):
 - `GET /apps/{app_id}/env/history`
 - `GET /apps/{app_id}/env/{key}`
 - `GET /apps/{app_id}/grants`
+- `GET /apps/{app_id}/hints`
 - `GET /apps/{app_id}/linked`
 - `GET /apps/{app_id}/logs`
 - `GET /apps/{app_id}/pooler`

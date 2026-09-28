@@ -257,3 +257,57 @@
 
     &__tradeoff { color: var(--text-faint); }
 }
+
+// Service detail Overview: bottleneck hints (plan 86 §A5).
+// Component: service-detail/HintsCard.
+.hints {
+    &__window {
+        font-size: 12px;
+        color: var(--text-dim);
+    }
+
+    &__list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    &__item {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding-top: 10px;
+        border-top: 1px solid var(--border-soft);
+
+        &:first-child { border-top: 0; padding-top: 0; }
+    }
+
+    &__signal {
+        margin: 0;
+        font-family: var(--mono);
+        font-size: 12.5px;
+        color: var(--text);
+    }
+
+    &__hint {
+        margin: 0;
+        font-size: 13px;
+        color: var(--text);
+    }
+
+    &__failure {
+        margin: 0;
+        font-size: 12px;
+        color: var(--text-dim);
+    }
+
+    &__action {
+        font-size: 12.5px;
+        color: var(--accent-bright);
+
+        &--here { color: var(--text-dim); }
+    }
+}

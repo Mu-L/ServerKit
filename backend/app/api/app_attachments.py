@@ -119,3 +119,15 @@ def set_pooler(app_id):
         raise ValidationError("'enabled' must be true or false")
     result = pooler_service.set_enabled(app, data['enabled'])
     return jsonify(result)
+
+
+# ==================== BOTTLENECK HINTS (plan 86 §A5) ====================
+
+@app_attachments_bp.route('/<int:app_id>/hints', methods=['GET'])
+@viewer_required
+def get_hints(app_id):
+    from app.services.bottleneck_hints_service import BottleneckHintsService
+    app = AppAttachmentService.live_app(app_id)
+    if app is None or not ResourceGrantService.can_access_app(get_current_user(), app):
+        raise NotFoundError('Application not found')
+    return jsonify({'hints': BottleneckHintsService.hints(app)})

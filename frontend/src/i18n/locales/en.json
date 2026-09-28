@@ -2686,6 +2686,26 @@
             "gunicornConfiguration": "Gunicorn Configuration",
             "loadingGunicornConfiguration": "Loading Gunicorn configuration…"
         },
+        "hints": {
+            "appBound": "The app itself is the bottleneck. Cache whole pages in front of it, or give it a bigger box.",
+            "appBoundFailure": "A cached page can be stale for up to its lifetime.",
+            "appBoundSignal": "p95 {{ms}} ms while the app uses {{cpu}}% CPU and its database is idle.",
+            "attachCache": "Attach a cache",
+            "dbBound": "The database is the bottleneck. Look at its top queries for a missing index, or cache what is read most.",
+            "dbBoundFailure": "Cached data can be stale; invalidate on write.",
+            "dbBoundRepeated": "The same query dominates: cache its result, or add an index for it (see the query in the database Insights tab).",
+            "dbBoundSignal": "p95 {{ms}} ms while {{db}} uses {{cpu}}% CPU.",
+            "dbBoundSignalShare": "p95 {{ms}} ms while {{db}} uses {{cpu}}% CPU; one query takes {{share}}% of its time.",
+            "deployErrors": "Visitors hit the gap while the old container stops and the new one starts. Slot deploys will keep the old copy serving until the new one passes its health check.",
+            "deployErrorsFailure": "Two copies run briefly during the switch; a migration must work with both.",
+            "deployErrorsSignal": "{{count}} server errors during deploys in the last 24 hours.",
+            "lowHit": "Most cacheable requests miss. The pages may vary per visitor, or the cache lifetime is too short for the traffic.",
+            "lowHitFailure": "A longer lifetime serves older pages.",
+            "lowHitSignal": "Micro-cache hit ratio {{ratio}}%.",
+            "openMicroCache": "Open micro-cache settings",
+            "title": "Where it is slow",
+            "window": "Last 24 hours"
+        },
         "htaccessConverter": {
             "conversionFailed": "Conversion failed",
             "convertHtaccess": "Convert .htaccess",

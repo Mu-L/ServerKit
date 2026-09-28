@@ -564,3 +564,8 @@ export async function getAppPooler(appId) {
 export async function setAppPooler(appId, enabled) {
     return this.request(`/apps/${appId}/pooler`, { method: 'PUT', body: { enabled } });
 }
+
+// Rule-based bottleneck hints for an app (plan 86 §A5).
+export async function getAppHints(appId) {
+    return this.request(`/apps/${appId}/hints`);
+}
