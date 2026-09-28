@@ -160,13 +160,32 @@ def test_plan_and_apply_endpoints(client, auth_headers, project):
     assert resp.get_json()['plan']['step_count'] == 0
 
 
-def test_redis_declared_but_warns(project, owner):
+def test_redis_installs_the_engine_under_the_service_name(project, owner, monkeypatch):
+    """`type: redis` used to log "declared but not provisioned" (plan 86 §C3)."""
+    from app.services.deployment_job_service import DeploymentJobService
+    from app.services.template_service import TemplateService
+    monkeypatch.setattr(TemplateService, '_get_docker_used_ports', classmethod(lambda cls: set()))
+    installs = []
+    monkeypatch.setattr(DeploymentJobService, 'install_template', classmethod(
+        lambda cls, **kw: installs.append(kw) or {'success': True, 'job_id': 'j1'}))
     n = ManifestSpecService.normalize({'version': 1,
                                        'services': [{'name': 'cache', 'type': 'redis'}]})
+
     plan = ManifestApplyService.plan(project, n)
-    assert plan['steps'][0]['type'] == 'warn'
+    assert [s['type'] for s in plan['steps']] == ['provision_engine']
     result = ManifestApplyService.apply(project, n, user_id=owner.id)
-    assert result['success'] is True
+
+    assert result['success'] is True, result
+    assert [(i['template_id'], i['app_name']) for i in installs] == [('redis', 'cache')]
+
+
+def test_an_installed_redis_is_not_installed_again(project, owner):
+    from app import db
+    from tests.factories import make_application
+    make_application(db, name='cache')
+    n = ManifestSpecService.normalize({'version': 1,
+                                       'services': [{'name': 'cache', 'type': 'redis'}]})
+    assert ManifestApplyService.plan(project, n)['steps'] == []
 
 
 # -- Dockerfile builds ------------------------------------------------------

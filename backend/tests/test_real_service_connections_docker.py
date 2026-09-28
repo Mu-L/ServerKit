@@ -136,3 +136,60 @@ def test_an_app_reaches_an_installed_redis_with_the_resolved_url(app, tmp_path, 
                  args=['down', '-v', '--remove-orphans'])
         _compose(engine_name, str(engine_root), base, override, check=False,
                  args=['down', '-v', '--remove-orphans'])
+
+
+def test_an_app_reaches_an_installed_rabbitmq_with_the_resolved_url(app, tmp_path, monkeypatch):
+    """Same round trip for the broker (plan 86 §C3): AMQP login with the URL."""
+    suffix = uuid.uuid4().hex[:8]
+    engine_name, client_name = f'skc-mq-{suffix}', f'skc-jobs-{suffix}'
+    installed = {}
+    monkeypatch.setattr(TemplateService, 'get_config', classmethod(
+        lambda cls: {'repos': [], 'installed': installed}))
+
+    template = TemplateService.get_template('rabbitmq')['template']
+    variables = {'APP_NAME': engine_name, 'BIND_ADDRESS': '127.0.0.1', 'PORT': '0',
+                 'RABBITMQ_USER': 'svc', 'RABBITMQ_PASSWORD': SECRET}
+    engine_root = tmp_path / engine_name
+    engine_root.mkdir()
+    rendered = yaml.safe_load(TemplateService.generate_compose(template, variables))
+    for svc in rendered['services'].values():
+        svc.pop('ports', None)
+    (engine_root / 'docker-compose.yml').write_text(yaml.safe_dump(rendered))
+    (engine_root / '.serverkit-template.json').write_text(json.dumps(
+        {'template_id': 'rabbitmq', 'variables': variables}))
+    engine = make_application(db, name=engine_name, root_path=str(engine_root))
+    installed[str(engine.id)] = {'template_id': 'rabbitmq'}
+
+    client_root = tmp_path / client_name
+    client_root.mkdir()
+    probe = ("import os, time, pika\n"
+             "for _ in range(60):\n"
+             "    try:\n"
+             "        c = pika.BlockingConnection(pika.URLParameters(os.environ['AMQP_URL']))\n"
+             "        c.channel().queue_declare('probe'); print('CONNECTED'); break\n"
+             "    except pika.exceptions.AMQPConnectionError:\n"
+             "        time.sleep(2)\n")
+    (client_root / 'probe.py').write_text(probe)
+    (client_root / 'docker-compose.yml').write_text(yaml.safe_dump({'services': {
+        'client': {'image': 'python:3.12-alpine', 'volumes': ['./probe.py:/probe.py:ro'],
+                   'command': ['sh', '-c', 'pip install -q --disable-pip-version-check pika '
+                               '>/dev/null 2>&1 && python /probe.py']},
+    }}))
+    client = make_application(db, name=client_name, root_path=str(client_root))
+    _var, _created, error = EnvService.set_env_reference(
+        client.id, 'AMQP_URL', {'kind': 'service', 'service': engine_name, 'property': 'url'})
+    assert error is None, error
+
+    base, override = 'docker-compose.yml', ComposeEnvService.OVERRIDE_NAME
+    try:
+        assert ComposeEnvService.refresh_for_project(str(engine_root))
+        assert ComposeEnvService.refresh_for_project(str(client_root))
+        _compose(engine_name, str(engine_root), base, override, args=['up', '-d'])
+        answered = _compose(client_name, str(client_root), base, override,
+                            args=['run', '--rm', 'client'], timeout=300)
+        assert 'CONNECTED' in answered.stdout, answered.stdout + answered.stderr
+    finally:
+        _compose(client_name, str(client_root), base, override, check=False,
+                 args=['down', '-v', '--remove-orphans'])
+        _compose(engine_name, str(engine_root), base, override, check=False,
+                 args=['down', '-v', '--remove-orphans'])

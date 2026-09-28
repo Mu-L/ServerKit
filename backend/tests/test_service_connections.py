@@ -160,3 +160,12 @@ class TestReachability:
 def test_container_port(ports, port_var, expected):
     template = {'compose': {'services': {'s': {'ports': ports}}}}
     assert container_port(template, port_var) == expected
+
+
+def test_rabbitmq_offers_an_amqp_url(installed):
+    installed('queue', 'rabbitmq', {'RABBITMQ_USER': 'svc', 'RABBITMQ_PASSWORD': SECRET})
+    props = ServiceConnectionService.spec(
+        Application.query.filter_by(name='queue').first())['properties']
+    url = urlparse(props['url'])
+    assert (url.scheme, url.hostname, url.port, url.username) == ('amqp', 'queue', 5672, 'svc')
+    assert unquote(url.password) == SECRET

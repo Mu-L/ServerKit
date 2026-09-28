@@ -2,7 +2,7 @@
   "name": "serverkit-official",
   "schema_version": "1.0",
   "generated_at": "2026-07-25T20:06:08.123735",
-  "count": 118,
+  "count": 120,
   "templates": [
     {
       "id": "actualbudget",
@@ -376,6 +376,17 @@
         "news",
         "rss",
         "productivity"
+      ]
+    },
+    {
+      "id": "garage",
+      "name": "Garage",
+      "version": "2.1.0",
+      "description": "Lightweight S3-compatible object storage. Give each app its own bucket and a key that can only reach it.",
+      "icon": "https://serverkit.ai/imgs/template-icons/garage.svg",
+      "categories": [
+        "storage",
+        "s3"
       ]
     },
     {
@@ -1285,6 +1296,17 @@
         "ai",
         "database",
         "search"
+      ]
+    },
+    {
+      "id": "rabbitmq",
+      "name": "RabbitMQ",
+      "version": "4.1",
+      "description": "Message broker for background jobs and queues (AMQP), used by Celery, Sidekiq-style workers and most job libraries",
+      "icon": "https://serverkit.ai/imgs/template-icons/rabbitmq.svg",
+      "categories": [
+        "queue",
+        "messaging"
       ]
     },
     {
