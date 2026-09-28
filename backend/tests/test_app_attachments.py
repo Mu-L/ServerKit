@@ -255,3 +255,74 @@ def test_api_rejects_an_unknown_kind(installed, client, auth_headers):
     ok = client.post(f'/api/v1/apps/{web.id}/attachments/cache',
                      json={'service_app_id': cache.id}, headers=auth_headers)
     assert ok.status_code == 201 and ok.get_json()['attachment']['env_keys'] == ['REDIS_URL']
+
+
+# ── Grafana data sources (plan 86 §A4) ────────────────────────────────────────
+
+class FakeGrafana:
+    def __init__(self):
+        self.calls = []
+
+    def upsert_datasource(self, kind, service_name, url):
+        self.calls.append(('upsert', kind, service_name, url))
+        return f'serverkit-{kind}-{service_name}'
+
+    def import_dashboard(self, uid):
+        self.calls.append(('dashboard', uid))
+
+    def delete_datasource(self, uid):
+        self.calls.append(('delete', uid))
+
+
+def test_grafana_gets_metrics_and_logs_kinds_and_others_do_not(installed):
+    graf, web = installed('graf', 'grafana'), installed('web')
+    assert AppAttachmentService.kinds_for(graf) == ['cache', 'storage', 'queue', 'metrics', 'logs']
+    assert AppAttachmentService.kinds_for(web) == ['cache', 'storage', 'queue']
+
+
+def test_metrics_attach_creates_a_data_source_and_the_dashboard(installed):
+    graf, prom = installed('graf', 'grafana'), installed('prom', 'prometheus')
+    fake = FakeGrafana()
+    row, created = AppAttachmentService.attach_grafana_source(graf, prom, 'metrics', grafana=fake)
+    assert created
+    assert fake.calls == [('upsert', 'metrics', 'prom', 'http://prom:9090'),
+                          ('dashboard', 'serverkit-metrics-prom')]
+    assert AppAttachmentService.detach(row, admin=fake) is None
+    assert fake.calls[-1] == ('delete', 'serverkit-metrics-prom')
+
+
+def test_logs_attach_adds_loki_without_a_dashboard(installed):
+    graf, loki = installed('graf', 'grafana'), installed('logs1', 'loki')
+    fake = FakeGrafana()
+    AppAttachmentService.attach_grafana_source(graf, loki, 'logs', grafana=fake)
+    assert fake.calls == [('upsert', 'logs', 'logs1', 'http://logs1:3100')]
+
+
+@pytest.mark.parametrize('consumer,service,kind,match', [
+    ('web', 'prometheus', 'metrics', 'Only a Grafana'),
+    ('grafana', 'loki', 'metrics', 'cannot be used as metrics'),
+    ('grafana', 'redis', 'logs', 'cannot be used as logs'),
+])
+def test_grafana_kinds_refuse_the_wrong_pair(installed, consumer, service, kind, match):
+    target = installed('target', consumer if consumer != 'web' else None)
+    svc_app = installed('svc', service)
+    with pytest.raises(AttachmentError, match=match):
+        AppAttachmentService.attach_grafana_source(target, svc_app, kind, grafana=FakeGrafana())
+
+
+def test_an_attached_app_joins_the_shared_network(installed):
+    from app.services.service_connection_service import ServiceConnectionService
+    graf, prom = installed('graf', 'grafana'), installed('prom', 'prometheus')
+    assert not ServiceConnectionService.needs_shared_network(graf)
+    AppAttachmentService.attach_grafana_source(graf, prom, 'metrics', grafana=FakeGrafana())
+    assert ServiceConnectionService.needs_shared_network(graf)
+
+
+def test_the_bundled_dashboard_charts_the_metrics_the_panel_exports():
+    import re
+    from app.services.grafana_provisioner import DASHBOARD_PATH
+    exported = {'serverkit_cpu_percent', 'serverkit_memory_percent', 'serverkit_disk_percent',
+                'serverkit_containers_running', 'serverkit_server_up'}
+    with open(DASHBOARD_PATH, encoding='utf-8') as fh:
+        used = set(re.findall(r'serverkit_[a-z_]+', fh.read()))
+    assert used and used <= exported, used - exported

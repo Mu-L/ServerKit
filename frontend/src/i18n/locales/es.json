@@ -6732,7 +6732,12 @@
             "redeployNow": "Volver a desplegar ahora",
             "redeploying": "Despliegue iniciado.",
             "service": "Servicio",
-            "title": "Servicios conectados"
+            "title": "Servicios conectados",
+            "failureLogs": "Grafana muestra lo que Loki conservó: pasado su periodo de retención, los registros desaparecen.",
+            "failureMetrics": "Grafana muestra lo que Prometheus conservó: pasado su periodo de retención, el historial desaparece.",
+            "grafanaDataSource": "Fuente de datos de Grafana",
+            "kindLogs": "Registros",
+            "kindMetrics": "Métricas"
         },
         "dbInsights": {
             "cacheHitMysql": "Tasa de aciertos del buffer pool de InnoDB",

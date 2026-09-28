@@ -191,5 +191,13 @@ class ServiceConnectionService:
         return False
 
     @classmethod
+    def has_attachments(cls, app) -> bool:
+        """An app with attachments reaches its services by name (a Grafana data
+        source, a bucket endpoint) even when no env reference names them."""
+        from app.models.app_attachment import AppAttachment
+        return AppAttachment.query.filter_by(app_id=app.id).first() is not None
+
+    @classmethod
     def needs_shared_network(cls, app) -> bool:
-        return cls.is_connectable(app) or cls.consumes_services(app)
+        return (cls.is_connectable(app) or cls.consumes_services(app)
+                or cls.has_attachments(app))

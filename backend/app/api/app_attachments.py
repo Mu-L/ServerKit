@@ -29,7 +29,8 @@ def list_attachments(app_id):
     app = AppAttachmentService.live_app(app_id)
     if app is None or not ResourceGrantService.can_access_app(get_current_user(), app):
         raise NotFoundError('Application not found')
-    return jsonify({'attachments': [a.to_dict() for a in AppAttachmentService.list_for_app(app)]})
+    return jsonify({'attachments': [a.to_dict() for a in AppAttachmentService.list_for_app(app)],
+                    'kinds': AppAttachmentService.kinds_for(app)})
 
 
 def _kind_or_400(kind):

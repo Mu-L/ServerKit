@@ -68,6 +68,19 @@ def _is_amqp(template, engine):
     return template.get('id') == 'rabbitmq'
 
 
+def _is_prometheus(template, engine):
+    return template.get('id') == 'prometheus'
+
+
+def _is_loki(template, engine):
+    return template.get('id') == 'loki'
+
+
+# Kinds that provision a data source on a Grafana consumer (plan 86 §A4)
+# instead of writing env; which service types each accepts.
+GRAFANA_KINDS = {'metrics': _is_prometheus, 'logs': _is_loki}
+
+
 CONNECTION_KINDS = {
     'cache': [(_is_redis, ('REDIS_URL',))],
     'queue': [(_is_amqp, ('AMQP_URL', 'BROKER_URL')), (_is_redis, ('BROKER_URL',))],
@@ -78,6 +91,8 @@ FAILURE_MODES = {
     'storage': 'Objects outlive the app: detaching keeps the bucket and its data.',
     'cache': 'Cached data can be stale; invalidate on write, and never keep the only copy in a cache.',
     'queue': 'A job can be delivered twice; make jobs safe to run again.',
+    'metrics': 'Grafana shows what Prometheus kept: past its retention, history is gone.',
+    'logs': 'Grafana shows what Loki kept: past its retention, logs are gone.',
 }
 
 
@@ -125,11 +140,35 @@ class AppAttachmentService:
                 return keys
         return None
 
+    @staticmethod
+    def _template_and_engine(app_row):
+        from app.services.service_connection_service import _template_for
+        from app.services.template_service import TemplateService
+        template = _template_for(app_row) or {}
+        return template, TemplateService.engine_metadata(template) or {}
+
+    @classmethod
+    def kinds_for(cls, app_row):
+        """What ``app_row`` can attach: every app takes cache / storage / queue;
+        a Grafana install also takes metrics and logs data sources."""
+        kinds = ['cache', 'storage', 'queue']
+        if cls.is_grafana(app_row):
+            kinds += list(GRAFANA_KINDS)
+        return kinds
+
+    @classmethod
+    def is_grafana(cls, app_row):
+        return cls._template_and_engine(app_row)[0].get('id') == 'grafana'
+
     @classmethod
     def services_for(cls, kind):
         """Installed services an app can attach as ``kind``."""
         if kind == 'storage':
             return cls.storage_services()
+        if kind in GRAFANA_KINDS:
+            from app.models.application import Application
+            return [a for a in Application.query_active().order_by(Application.name).all()
+                    if GRAFANA_KINDS[kind](*cls._template_and_engine(a))]
         from app.models.application import Application
         return [a for a in Application.query_active().order_by(Application.name).all()
                 if cls._connection_env_keys(a, kind)]
@@ -138,6 +177,8 @@ class AppAttachmentService:
     def attach(cls, app, service_app, kind, user_id=None):
         if kind == 'storage':
             return cls.attach_storage(app, service_app, user_id=user_id)
+        if kind in GRAFANA_KINDS:
+            return cls.attach_grafana_source(app, service_app, kind)
         if kind not in CONNECTION_KINDS:
             raise AttachmentError(f'Unknown attachment kind: {kind}')
         return cls.attach_connection(app, service_app, kind, user_id=user_id)
@@ -221,6 +262,38 @@ class AppAttachmentService:
         return row, True
 
     @classmethod
+    def attach_grafana_source(cls, app, service_app, kind, grafana=None):
+        """Create ``service_app`` as a data source on the Grafana ``app``."""
+        from app.models.app_attachment import AppAttachment
+        from app.services.grafana_provisioner import GrafanaError, GrafanaProvisioner
+        from app.services.service_connection_service import ServiceConnectionService
+
+        if not cls.is_grafana(app):
+            raise AttachmentError(f'Only a Grafana install can attach {kind}')
+        if not GRAFANA_KINDS[kind](*cls._template_and_engine(service_app)):
+            raise AttachmentError(f'{service_app.name} cannot be used as {kind}')
+        existing = AppAttachment.query.filter_by(app_id=app.id, kind=kind).first()
+        if existing is not None:
+            if existing.service_app_id != service_app.id:
+                raise AttachmentError(f'This Grafana already has {kind} attached; detach it first')
+            return existing, False
+        url, error = ServiceConnectionService.resolve(service_app, 'url')
+        if error:
+            raise AttachmentError(error)
+        try:
+            grafana = grafana or GrafanaProvisioner.for_app(app)
+            uid = grafana.upsert_datasource(kind, service_app.name, url)
+            if kind == 'metrics':
+                grafana.import_dashboard(uid)
+        except GrafanaError as exc:
+            raise AttachmentError(f'Grafana setup failed: {exc}') from exc
+        row = AppAttachment(app_id=app.id, service_app_id=service_app.id, kind=kind)
+        row.details = {'datasource_uid': uid, 'env_keys': []}
+        db.session.add(row)
+        db.session.commit()
+        return row, True
+
+    @classmethod
     def detach(cls, attachment, user_id=None, admin=None):
         """Remove the key, its secret and the env the attach wrote. Keeps the
         bucket and its data."""
@@ -237,6 +310,13 @@ class AppAttachmentService:
                 # The service may already be gone or stopped; the key is
                 # useless without the env, and the row must still go.
                 warning = f'Key could not be revoked on {attachment.service_app.name}: {exc}'
+        if details.get('datasource_uid'):
+            from app.services.grafana_provisioner import GrafanaError, GrafanaProvisioner
+            try:
+                (admin or GrafanaProvisioner.for_app(attachment.application)).delete_datasource(
+                    details['datasource_uid'])
+            except GrafanaError as exc:
+                warning = f'Data source could not be removed from Grafana: {exc}'
         for env_key in details.get('env_keys') or []:
             EnvService.delete_env_var(attachment.app_id, env_key, user_id=user_id)
         if details.get('secret_name'):

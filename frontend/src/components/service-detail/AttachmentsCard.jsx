@@ -18,8 +18,11 @@ const DEFAULT_TEMPLATES = {
     cache: { id: 'redis', name: 'Redis' },
     storage: { id: 'garage', name: 'Garage' },
     queue: { id: 'rabbitmq', name: 'RabbitMQ' },
+    metrics: { id: 'prometheus', name: 'Prometheus' },
+    logs: { id: 'loki', name: 'Loki' },
 };
-const KINDS = ['cache', 'storage', 'queue'];
+// Until the server says otherwise (a Grafana install also takes metrics/logs).
+const DEFAULT_KINDS = ['cache', 'storage', 'queue'];
 
 // "Attach → Cache / Storage / Queue" (plan 86 §C4): reuse an installed
 // service or install one, write the env references, then offer a redeploy.
@@ -29,6 +32,7 @@ export default function AttachmentsCard({ app }) {
     const { confirm } = useConfirm();
     const { isAdmin } = useAuth();
     const [attachments, setAttachments] = useState(null);
+    const [kinds, setKinds] = useState(DEFAULT_KINDS);
     const [kind, setKind] = useState(null);
     const [choices, setChoices] = useState(null);
     const [selected, setSelected] = useState('');
@@ -41,17 +45,24 @@ export default function AttachmentsCard({ app }) {
         cache: t('app.attachments.failureCache', 'Cached data can be stale; invalidate on write, and never keep the only copy in a cache.'),
         storage: t('app.attachments.failureStorage', 'Objects outlive the app: detaching keeps the bucket and its data.'),
         queue: t('app.attachments.failureQueue', 'A job can be delivered twice; make jobs safe to run again.'),
+        metrics: t('app.attachments.failureMetrics', 'Grafana shows what Prometheus kept: past its retention, history is gone.'),
+        logs: t('app.attachments.failureLogs', 'Grafana shows what Loki kept: past its retention, logs are gone.'),
     }[k]);
 
     const kindLabel = (k) => ({
         cache: t('app.attachments.kindCache', 'Cache'),
         storage: t('app.attachments.kindStorage', 'Storage'),
         queue: t('app.attachments.kindQueue', 'Queue'),
+        metrics: t('app.attachments.kindMetrics', 'Metrics'),
+        logs: t('app.attachments.kindLogs', 'Logs'),
     }[k]);
 
     const load = useCallback(() => {
         api.getAppAttachments(app.id)
-            .then((data) => setAttachments(data.attachments || []))
+            .then((data) => {
+                setAttachments(data.attachments || []);
+                if (data.kinds?.length) setKinds(data.kinds);
+            })
             .catch(() => setAttachments([]));
     }, [app.id]);
 
@@ -136,7 +147,7 @@ export default function AttachmentsCard({ app }) {
     }
 
     const attachedKinds = new Set((attachments || []).map((a) => a.kind));
-    const open = KINDS.filter((k) => !attachedKinds.has(k));
+    const open = kinds.filter((k) => !attachedKinds.has(k));
 
     return (
         <div className="overview-tab__card overview-tab__card--full attachments">
@@ -178,7 +189,10 @@ export default function AttachmentsCard({ app }) {
                             <span className="attachments__kind">{kindLabel(row.kind)}</span>
                             <span className="attachments__service">{row.service_name}</span>
                             <code className="attachments__env">
-                                {row.kind === 'storage' ? `S3_BUCKET=${row.bucket}` : row.env_keys.join(', ')}
+                                {row.kind === 'storage' && `S3_BUCKET=${row.bucket}`}
+                                {(row.kind === 'metrics' || row.kind === 'logs')
+                                    && t('app.attachments.grafanaDataSource', 'Grafana data source')}
+                                {row.env_keys.length > 0 && row.kind !== 'storage' && row.env_keys.join(', ')}
                             </code>
                             <Button variant="ghost" size="sm" onClick={() => detach(row)}
                                 aria-label={t('app.attachments.detach', 'Detach')}>
