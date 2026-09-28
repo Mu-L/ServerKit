@@ -58,7 +58,7 @@ class AppRequestMetric(JsonColumnMixin, db.Model):
     application = db.relationship(
         'Application',
         backref=db.backref('request_metrics', cascade='all, delete-orphan',
-                           passive_deletes=True, lazy='select'),
+                           lazy='select'),
     )
 
     def get_hist(self):

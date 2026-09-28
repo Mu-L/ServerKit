@@ -272,3 +272,15 @@ def test_api(app, client, auth_headers):
     missing = client.get('/api/v1/bandwidth/apps/999999/requests',
                          headers=auth_headers)
     assert missing.status_code == 404
+
+
+def test_hard_deleting_an_app_takes_its_rollups(app, tmp_path):
+    """SQLite doesn't enforce ON DELETE CASCADE here; the ORM relationship must."""
+    from app.models.application import Application
+    site = _make_app()
+    _write(tmp_path / 'shop.access.log', FIXTURE, 'w')
+    RequestMetricsService.sample(log_dir=str(tmp_path), now=NOW)
+    assert AppRequestMetric.query.filter_by(app_id=site.id).count() > 0
+    db.session.delete(Application.query.get(site.id))
+    db.session.commit()
+    assert AppRequestMetric.query.filter_by(app_id=site.id).count() == 0
