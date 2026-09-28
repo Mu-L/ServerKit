@@ -412,22 +412,30 @@ class BuildpackService:
 
     @classmethod
     def _apply_procfile(cls, repo_path: str, files: set, plan: Dict) -> None:
-        """A Procfile ``web:`` line overrides the inferred start command."""
+        """A Procfile ``web:`` line overrides the inferred start command; the
+        other long-running lines become ``plan['processes']`` (plan 86 §C3),
+        run as sibling containers of the same image at deploy."""
         if 'Procfile' not in files:
             return
+        from app.services.worker_process_service import parse_procfile, worker_processes
         try:
             with open(os.path.join(repo_path, 'Procfile'), 'r', encoding='utf-8') as fh:
-                for line in fh:
-                    m = re.match(r'\s*web\s*:\s*(.+)', line)
-                    if m:
-                        plan['start_command'] = m.group(1).strip()
-                        plan['notes'].append('Start command taken from Procfile (web:).')
-                        if plan['builder'] == 'unknown':
-                            plan['builder'] = 'nixpacks'
-                            plan['confidence'] = max(plan['confidence'], 0.5)
-                        break
+                text = fh.read()
         except OSError:
-            pass
+            return
+        web = parse_procfile(text).get('web')
+        if web:
+            plan['start_command'] = web
+            plan['notes'].append('Start command taken from Procfile (web:).')
+            if plan['builder'] == 'unknown':
+                plan['builder'] = 'nixpacks'
+                plan['confidence'] = max(plan['confidence'], 0.5)
+        workers = worker_processes(text)
+        if workers:
+            plan['processes'] = dict(workers)
+            plan['notes'].append(
+                'Procfile processes run alongside the web process: '
+                + ', '.join(workers) + '.')
 
     # ------------------------------------------------------------------ #
     # Overrides
@@ -731,6 +739,14 @@ class BuildpackService:
             lines.append('    networks:')
             for net in networks:
                 lines.append(f'      - {net}')
+        for process, command in ((plan.get('processes') or {}).items()):
+            # Same image, the Procfile command, no port (plan 86 §C3).
+            lines += [
+                f'  {safe_name}-{process}:',
+                f'    image: serverkit-{safe_name}:latest',
+                '    restart: unless-stopped',
+                f'    command: {json.dumps(["sh", "-c", command])}',
+            ]
         if named_volumes:
             lines.append('volumes:')
             for name in named_volumes:
