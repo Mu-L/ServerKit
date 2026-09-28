@@ -52,10 +52,6 @@ App badge: `app.sleep = {enabled, asleep, idle_timeout_minutes}`.
 Idle is measured from `last_activity_at` (bumped on wake / `record_activity`); a
 no-activity-baseline policy is never slept blind.
 
-### Container auto-scale (removed 2026-09-28)
-Removed with the other replica pieces: nginx only proxied to one port and
-the auto-scale sweep was never scheduled. One live copy per app.
-
 ### GPU monitoring — `services/gpu_service.py` (no model)
 | Method | Path | Auth | Notes |
 |---|---|---|---|
@@ -100,9 +96,9 @@ the auto-scale sweep was never scheduled. One live copy per app.
 
 ## 5. Operational notes
 
-- **Cron the sweeps**: `POST /apps/sweep-idle` (auto-sleep) and `POST /apps/scale-sweep`
-  (auto-scale) are admin endpoints meant to be hit periodically. Wiring them to a
-  built-in scheduler is a follow-up; for now drive them from cron.
+- **Cron the sweep**: `POST /apps/sweep-idle` (auto-sleep) is an admin endpoint meant
+  to be hit periodically. Wiring it to a built-in scheduler is a follow-up; for now
+  drive it from cron.
 - **Public DDNS endpoint**: `/ddns/update` is the only unauthenticated route added
   (the per-host token is the credential). Serve it over HTTPS.
 - **WAF integration is additive**: per-app rules go to `serverkit-conf.d/waf` and an
