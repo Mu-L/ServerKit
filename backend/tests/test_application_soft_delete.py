@@ -158,9 +158,9 @@ def test_purge_is_what_removes_the_volumes(app, dead_app, monkeypatch):
 
 
 def test_purge_takes_the_one_to_one_policy_rows_with_it(app, dead_app, monkeypatch):
-    """Field report: purging an app that had an auto-scale policy died with
-    `IntegrityError: NOT NULL constraint failed: container_scale_policies
-    .application_id`. Without a delete cascade SQLAlchemy's default on parent
+    """Field report: purging an app that had a one-to-one policy row died with
+    `IntegrityError: NOT NULL constraint failed: <policy table>
+    .application_id` (auto-scale policies then; that feature is gone). Without a delete cascade SQLAlchemy's default on parent
     delete is to NULL the child FK — and these one-to-one rows declare the FK
     NOT NULL, so the purge itself crashed. The policy rows must ride along."""
     from app.services import docker_service
@@ -169,12 +169,10 @@ def test_purge_takes_the_one_to_one_policy_rows_with_it(app, dead_app, monkeypat
     monkeypatch.setattr(application_restore.CronService, 'clear_application',
                         classmethod(lambda cls, _id: 0))
 
-    from app.models.container_scale_policy import ContainerScalePolicy
     from app.models.container_sleep_policy import ContainerSleepPolicy
     from app.models.deployment import Deployment
 
     with app.app_context():
-        db.session.add(ContainerScalePolicy(application_id=dead_app.id))
         db.session.add(ContainerSleepPolicy(application_id=dead_app.id))
         db.session.add(Deployment(app_id=dead_app.id, version=1))
         db.session.commit()
@@ -183,8 +181,6 @@ def test_purge_takes_the_one_to_one_policy_rows_with_it(app, dead_app, monkeypat
         assert ok
         assert warning is None, warning
         assert Application.query.get(dead_app.id) is None
-        assert ContainerScalePolicy.query.filter_by(
-            application_id=dead_app.id).first() is None
         assert ContainerSleepPolicy.query.filter_by(
             application_id=dead_app.id).first() is None
         assert Deployment.query.filter_by(app_id=dead_app.id).first() is None
