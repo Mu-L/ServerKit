@@ -25,6 +25,7 @@ existing ``serverkit-app-<id>`` container as slot ``a`` until slot ``a`` is
 next deployed into.
 """
 import logging
+import os
 import time
 from datetime import datetime, timedelta
 from typing import Callable, Dict, Optional
@@ -44,6 +45,7 @@ _now = datetime.utcnow
 WATCH_INTERVAL = 2.0
 WATCH_FAILURES = 3          # consecutive failed probes that trigger a revert
 REVERT_CHECK_TIMEOUT = 20   # the restored slot must answer within this
+NGINX_PROBE_URL = 'http://127.0.0.1/'   # host nginx, asked with the site's Host header
 
 
 def slot_container_name(app, slot: str) -> str:
@@ -62,6 +64,47 @@ def live_container_name(app) -> str:
         if row and row.container_name:
             return row.container_name
     return legacy_container_name(app)
+
+
+def _compose_files(slot: AppSlot):
+    """The file(s) a compose slot's project was brought up from."""
+    from app.services import slot_compose_service as sc
+    app = slot.application
+    if slot.project_name == sc.original_project(app):
+        return [os.path.join(app.root_path, app.compose_file)]
+    return [sc.slot_file(app, slot.slot)]
+
+
+def _slot_start(slot: AppSlot) -> bool:
+    from app.services.docker_service import DockerService
+    if slot.project_name:
+        from app.services import slot_compose_service as sc
+        return bool(sc.compose(slot.project_name, _compose_files(slot), 'start',
+                               cwd=slot.application.root_path).get('success'))
+    if not slot.container_name:
+        return False
+    return bool(DockerService.start_container(slot.container_name).get('success'))
+
+
+def _slot_stop(slot: AppSlot) -> None:
+    from app.services.docker_service import DockerService
+    if slot.project_name:
+        from app.services import slot_compose_service as sc
+        sc.compose(slot.project_name, _compose_files(slot), 'stop', cwd=slot.application.root_path)
+    elif slot.container_name:
+        DockerService.stop_container(slot.container_name)
+
+
+def _slot_remove(slot: AppSlot) -> None:
+    """Remove a slot's containers. Never its volumes: those are shared."""
+    from app.services.docker_service import DockerService
+    if slot.project_name:
+        from app.services import slot_compose_service as sc
+        sc.compose(slot.project_name, _compose_files(slot), 'down', '--remove-orphans',
+                   cwd=slot.application.root_path)
+    elif slot.container_name:
+        DockerService.stop_container(slot.container_name)
+        DockerService.remove_container(slot.container_name)
 
 
 def _restorable(app):
@@ -122,8 +165,15 @@ class SlotDeployService:
             reasons.append('Not published on a domain or private URL. Slots switch traffic '
                            'in nginx, and an app reached on its raw port would lose it.')
 
-        if compose:
-            reasons.append('A compose app. Slot deploys cover single-container apps so far.')
+        split_needed = False
+        if compose and not reasons:
+            from app.services import slot_compose_service
+            verdict = slot_compose_service.eligibility(app)
+            reasons.extend(verdict['reasons'])
+            warnings.extend(verdict['warnings'])
+            split_needed = verdict.get('split_needed', False)
+        elif compose:
+            pass
         elif app.volumes:
             settings = deploy_settings.effective(app)
             names = ', '.join(sorted(v.name for v in app.volumes))
@@ -134,7 +184,8 @@ class SlotDeployService:
                 reasons.append(f'Both slots would mount the same volumes ({names}) for a few '
                                'seconds around each switch. Something like SQLite breaks when '
                                'two processes write to it; confirm the app handles it to enable.')
-        return {'eligible': not reasons, 'mode': mode, 'reasons': reasons, 'warnings': warnings}
+        return {'eligible': not reasons, 'mode': mode, 'reasons': reasons, 'warnings': warnings,
+                'split_needed': split_needed}
 
     # ------------------------------------------------------------------ #
     # Slot rows
@@ -158,10 +209,13 @@ class SlotDeployService:
         from app.models.deployment import Deployment
         from app.services.docker_service import DockerService
 
+        from app.services.deployment_service import DeploymentService
         rows = cls.slots(app)
         if app.active_slot in SLOTS:
             db.session.commit()
             return rows
+        if DeploymentService._uses_compose(app):
+            return cls._adopt_compose(app, rows)
         a = rows['a']
         a.host_port = app.port
         a.container_port = app.port
@@ -176,6 +230,37 @@ class SlotDeployService:
         running = bool(info and (info.get('State') or {}).get('Running'))
         a.state = 'live' if running else ('stopped' if info else 'empty')
         a.started_at = _now() if running else None
+        app.active_slot = 'a'
+        db.session.commit()
+        return rows
+
+    @classmethod
+    def _adopt_compose(cls, app, rows) -> Dict[str, AppSlot]:
+        """The compose project running today becomes slot a, untouched."""
+        from app.models.deployment import Deployment
+        from app.services import slot_compose_service as sc
+        config, error = sc.merged_config(app)
+        if config is None:
+            raise SlotDeployError(f'Could not read the compose file: {error}')
+        web, target = sc.web_service(config, app.port)
+        if not web:
+            raise SlotDeployError(f'No service publishes port {app.port}.')
+        deploy_settings.set_internal(app, 'compose_web', web)
+        deploy_settings.set_internal(app, 'compose_web_port', app.port)
+        a = rows['a']
+        a.project_name = sc.original_project(app)
+        a.host_port = app.port
+        a.container_port = target
+        found = sc.project_containers(a.project_name, web)
+        a.container_name = found[0]['name'] if found else None
+        running = bool(found and found[0]['state'] == 'running')
+        a.state = 'live' if running else ('stopped' if found else 'empty')
+        a.started_at = _now() if running else None
+        current = Deployment.get_current(app.id)
+        if current:
+            a.deployment_id = current.id
+            a.commit_sha = current.commit_hash
+        a.image_ref = f'compose:d{current.id}' if current else None
         app.active_slot = 'a'
         db.session.commit()
         return rows
@@ -200,12 +285,19 @@ class SlotDeployService:
             if not verdict['eligible']:
                 return {'success': False, 'error': verdict['reasons'][0],
                         'eligibility': verdict}
-            from app.services.deployment_service import DeploymentService
             app.slot_deploys_enabled = True
             db.session.commit()
-            if not DeploymentService._uses_compose(app):
+            try:
                 cls.adopt(app)
+            except SlotDeployError as exc:
+                app.slot_deploys_enabled = False
+                db.session.commit()
+                return {'success': False, 'error': str(exc)}
             return {'success': True, 'slots': cls.status(app)}
+        if deploy_settings.get(app, 'compose_data_split'):
+            return {'success': False,
+                    'error': 'This app\'s stateful services live in a shared data project now; '
+                             'it keeps deploying through slots.'}
         # Opting out keeps the slots until the next deploy, which goes back to
         # the in-place path and folds them away (release_slots).
         app.slot_deploys_enabled = False
@@ -312,7 +404,7 @@ class SlotDeployService:
                 _log(log, f'Stopping slot {live.slot.upper()} before the release command, as this '
                           'app is set to: the site is down until the new release passes its '
                           'health check.')
-                DockerService.stop_container(live.container_name)
+                _slot_stop(live)
                 old_stopped = True
             ran = release.run_release(app, image, env, volumes, command, log)
             deployment.update_metadata('release_ran', True)
@@ -363,9 +455,19 @@ class SlotDeployService:
                                   f'The site is still serving {version}.')
             connect_shared_network(app, name)
 
+        failed = cls._bring_live(app, live, idle, name, reuse, old_stopped, version, log, stage)
+        if failed:
+            return failed
+        workers = WorkerProcessService.deploy(app, image, env, volumes, log=log)
+        return {'success': True, 'slot': idle.slot, 'workers': workers, 'container_id': name}
+
+    @classmethod
+    def _bring_live(cls, app, live, idle, container, reuse, old_stopped, version, log, stage):
+        """Gate the booted idle slot, switch to it, watch it, retire the old
+        one to standby. None on success, else the failure result."""
         stage('Health gate')
         try:
-            result = health_gate.gate_for_app(app, port=idle.host_port, container=name,
+            result = health_gate.gate_for_app(app, port=idle.host_port, container=container,
                                               log=lambda line: _log(log, line))
             idle.last_health = f"{result['status']} on {result['url']}"[:255]
         except HealthGateError as exc:
@@ -395,17 +497,254 @@ class SlotDeployService:
                                  else 'switching back FAILED — the site may be down.'))}
 
         cls._make_standby(app, live, log)
-        workers = WorkerProcessService.deploy(app, image, env, volumes, log=log)
-        return {'success': True, 'slot': idle.slot, 'workers': workers, 'container_id': name}
+        return None
+
+    # ------------------------------------------------------------------ #
+    # Deploy (compose, §C)
+    # ------------------------------------------------------------------ #
+    @classmethod
+    def deploy_compose(cls, app, deployment, log=None, stage=None, reuse_standby=False) -> Dict:
+        """The compose project booted as ``<name>-<idle slot>`` beside the live
+        one, then the same gate / switch / watch / standby as a container.
+
+        The caller has already run the compose preflight (validate, build,
+        pull) against the app's own compose file while the live slot served.
+        """
+        from app.services import deploy_stages, release_phase_service as release
+        from app.services import slot_compose_service as sc
+
+        stage = stage or deploy_stages.mark
+        rows = cls.adopt(app)       # SlotDeployError: nothing was touched yet
+        live = rows[app.active_slot]
+        idle = rows[other(app.active_slot)]
+        version = f'v{live.deployment.version}' if live.deployment else 'the previous release'
+
+        reuse = bool(reuse_standby and idle.state in ('standby', 'stopped') and idle.project_name
+                     and sc.project_containers(idle.project_name))
+        if not reuse:
+            config, error = sc.merged_config(app)
+            if config is None:
+                return cls._abort(app, live, False, f'Could not read the compose file: {error}. '
+                                                    f'The site is still serving {version}.')
+            web = deploy_settings.get(app, 'compose_web')
+            if web not in (config.get('services') or {}):
+                return cls._abort(app, live, False,
+                                  f'The compose file no longer has the web service {web!r}. '
+                                  f'The site is still serving {version}.')
+            split = bool(deploy_settings.get(app, 'compose_data_split'))
+            if not idle.host_port or idle.host_port == live.host_port:
+                idle.host_port = cls._pick_port(app, exclude={live.host_port, app.port})
+            container_port = live.container_port
+            tags = {name: f'serverkit-app-{app.id}-{name}:d{deployment.id}'
+                    for name, service in config['services'].items()
+                    if service.get('build') and not (split and name in sc.classify(config, web)[1])}
+            rendered = sc.render_slot(app, config, web, idle.host_port, container_port, tags,
+                                      with_data_network=split)
+            project = sc.slot_project(app, idle.slot)
+            path = sc.slot_file(app, idle.slot)
+            sc.write(path, rendered)
+            if tags:
+                stage('Build')
+                built = sc.compose(project, [path], 'build', cwd=app.root_path)
+                if not built.get('success'):
+                    return cls._abort(app, live, False,
+                                      f"Building the slot images failed: {built.get('error')}. "
+                                      f'The site is still serving {version}.')
+
+        # ---- snapshot + release, once, before the switch
+        stage('Snapshot')
+        release.snapshot_databases(app, deployment, log)
+        stage('Release')
+        old_stopped = False
+        command, source = release.resolve_release_command(app)
+        if command and (reuse or getattr(deployment, 'deploy_trigger', None) == 'rollback'):
+            _log(log, f'Rollback: not running the release command ({source}).')
+            command = None
+        if command:
+            if deploy_settings.get(app, 'stop_old_before_release'):
+                _log(log, f'Stopping slot {live.slot.upper()} before the release command, as this '
+                          'app is set to: the site is down until the new release passes its '
+                          'health check.')
+                _slot_stop(live)
+                old_stopped = True
+            _log(log, f'Running release command in a one-off {web} container: {command}')
+            ran = sc.compose(project, [path], 'run', '--rm', '--no-deps', web, 'sh', '-c', command,
+                             cwd=app.root_path, timeout=release.RELEASE_TIMEOUT)
+            for line in (ran.get('output') or '').splitlines()[-40:]:
+                _log(log, line)
+            deployment.update_metadata('release_ran', True)
+            db.session.commit()
+            if not ran.get('success'):
+                return cls._abort(app, live, old_stopped,
+                                  f"The release command ({source}) failed: {ran.get('error')}. "
+                                  f'The new release was not started; the site is still serving {version}.')
+
+        stage(f'Boot slot {idle.slot.upper()}')
+        if reuse:
+            _log(log, f'Slot {idle.slot.upper()} still holds this release; starting it again...')
+            if not _slot_start(idle):
+                return cls._abort(app, live, old_stopped,
+                                  f'The standby in slot {idle.slot.upper()} would not start. '
+                                  f'The site is still serving {version}.')
+        else:
+            # Whatever the idle slot ran before (an older release, or the
+            # adopted in-place project) makes way; the live slot is untouched.
+            if idle.project_name and idle.project_name != live.project_name:
+                _slot_remove(idle)
+            _log(log, f'Booting slot {idle.slot.upper()} ({project}) on 127.0.0.1:{idle.host_port} '
+                      f'while slot {live.slot.upper()} keeps serving...')
+            up = sc.compose(project, [path], 'up', '-d', '--no-build', '--remove-orphans',
+                            cwd=app.root_path)
+            idle.project_name = project
+            idle.container_port = container_port
+            if not up.get('success'):
+                idle.state = 'failed'
+                idle.last_health = (up.get('error') or 'did not start')[:255]
+                db.session.commit()
+                _slot_remove(idle)
+                return cls._abort(app, live, old_stopped,
+                                  f"The new release did not start: {up.get('error')}. "
+                                  f'The site is still serving {version}.')
+            web_rows = sc.project_containers(project, web)
+            idle.container_name = web_rows[0]['name'] if web_rows else None
+            idle.image_ref = f'compose:d{deployment.id}'
+        idle.deployment_id = deployment.id
+        idle.commit_sha = getattr(deployment, 'commit_hash', None)
+        idle.state = 'booting'
+        idle.standby_until = None
+        db.session.commit()
+
+        failed = cls._bring_live(app, live, idle, idle.container_name, reuse, old_stopped,
+                                 version, log, stage)
+        if failed:
+            return failed
+        return {'success': True, 'slot': idle.slot, 'container_id': idle.container_name}
+
+    @classmethod
+    def rollback_compose(cls, app, target, rollback_deployment, log=None) -> Dict:
+        """Roll a compose slot app back: the warm/stopped standby when it holds
+        ``target``, otherwise a slot deploy of ``target``'s commit."""
+        from app.services.deployment_service import DeploymentService
+        idle = AppSlot.query.filter_by(application_id=app.id,
+                                       slot=other(app.active_slot or 'a')).first()
+        if idle is not None and idle.deployment_id == target.id:
+            return cls.deploy_compose(app, rollback_deployment, log=log, reuse_standby=True)
+        if not target.commit_hash:
+            return {'success': False, 'still_serving': True,
+                    'error': f'v{target.version} is not in the standby and has no commit to '
+                             'rebuild from; only the standby can be switched back to.'}
+        checkout = DeploymentService._checkout(app, target.commit_hash, log)
+        if not checkout.get('success'):
+            return {'success': False, 'still_serving': True, 'error': checkout.get('error')}
+        from app.services import deploy_preflight_service as preflight
+        checks = preflight.preflight_compose_project(app.root_path, app.compose_file, log=log)
+        if not checks.ok:
+            return {'success': False, 'still_serving': True, 'error': checks.error}
+        return cls.deploy_compose(app, rollback_deployment, log=log)
+
+    # ------------------------------------------------------------------ #
+    # The one-time data split (§C)
+    # ------------------------------------------------------------------ #
+    @classmethod
+    def compose_split_preview(cls, app) -> Dict:
+        from app.services import slot_compose_service as sc
+        import yaml
+        config, error = sc.merged_config(app)
+        if config is None:
+            return {'success': False, 'error': error}
+        web, target = sc.web_service(config, app.port)
+        if not web:
+            return {'success': False, 'error': f'No service publishes port {app.port}.'}
+        _stateless, stateful = sc.classify(config, web)
+        if not stateful:
+            return {'success': False, 'error': 'This stack has no stateful services to move.'}
+        data = sc.render_data(app, config, web)
+        slot = sc.render_slot(app, config, web, 0, target, {}, with_data_network=True)
+        return {'success': True, 'web': web, 'stateful': stateful,
+                'data_project': sc.slot_project(app, sc.DATA),
+                'data_compose': yaml.safe_dump(data, sort_keys=False),
+                'slot_compose': yaml.safe_dump(slot, sort_keys=False).replace(
+                    '127.0.0.1:0:', '127.0.0.1:<slot port>:'),
+                'downtime': ('The app is stopped while its stateful services move to the shared '
+                             'data project on the same volumes, then starts again as slot A. '
+                             'Expect a short outage, once.')}
+
+    @classmethod
+    def compose_split_apply(cls, app, log=None) -> Dict:
+        """Move the stateful services into ``<name>-data`` and restart the
+        stateless ones as slot a. One announced outage; data stays on the same
+        volumes (pinned names)."""
+        from app.models.deployment import Deployment
+        from app.services import slot_compose_service as sc
+        from app.services.deploy_lock import deploy_lock
+        from app.services.docker_service import DockerService
+
+        with deploy_lock(app.id, 'compose split', log=log):
+            preview = cls.compose_split_preview(app)
+            if not preview.get('success'):
+                return preview
+            config, _ = sc.merged_config(app)
+            web, target = sc.web_service(config, app.port)
+            base_port = app.port
+            data_project = sc.slot_project(app, sc.DATA)
+            data_path = sc.slot_file(app, sc.DATA)
+            sc.write(data_path, sc.render_data(app, config, web))
+            original = sc.original_project(app)
+            original_files = [os.path.join(app.root_path, app.compose_file)]
+
+            _log(log, f'Stopping {original} (announced outage)...')
+            sc.compose(original, original_files, 'down', '--remove-orphans', cwd=app.root_path)
+            DockerService.ensure_network(sc.data_network(app))
+            _log(log, f"Starting {data_project}: {', '.join(preview['stateful'])}...")
+            up = sc.compose(data_project, [data_path], 'up', '-d', cwd=app.root_path)
+            if not up.get('success'):
+                DockerService.compose_up(app.root_path, detach=True, compose_file=app.compose_file)
+                return {'success': False,
+                        'error': f"Starting the data project failed: {up.get('error')}. "
+                                 'The original stack was started again.'}
+
+            rows = cls.slots(app)
+            a = rows['a']
+            a.host_port = base_port
+            a.container_port = target
+            project = sc.slot_project(app, 'a')
+            path = sc.slot_file(app, 'a')
+            sc.write(path, sc.render_slot(app, config, web, base_port, target, {},
+                                          with_data_network=True))
+            _log(log, f'Starting {project} as slot A...')
+            up = sc.compose(project, [path], 'up', '-d', '--remove-orphans', cwd=app.root_path)
+            if not up.get('success'):
+                sc.compose(data_project, [data_path], 'down', cwd=app.root_path)
+                DockerService.compose_up(app.root_path, detach=True, compose_file=app.compose_file)
+                return {'success': False,
+                        'error': f"Starting slot A failed: {up.get('error')}. "
+                                 'The original stack was started again.'}
+            found = sc.project_containers(project, web)
+            a.project_name = project
+            a.container_name = found[0]['name'] if found else None
+            current = Deployment.get_current(app.id)
+            a.deployment_id = current.id if current else None
+            a.image_ref = f'compose:d{current.id}' if current else None
+            a.state = 'live'
+            a.started_at = _now()
+            app.active_slot = 'a'
+            app.slot_deploys_enabled = True
+            app.container_id = a.container_name
+            deploy_settings.set_internal(app, 'compose_data_split', True)
+            deploy_settings.set_internal(app, 'compose_web', web)
+            deploy_settings.set_internal(app, 'compose_web_port', base_port)
+            db.session.commit()
+            from app.services import container_status_service
+            container_status_service.invalidate(app.id)
+            return {'success': True, 'slots': cls.status(app)}
 
     @classmethod
     def _abort(cls, app, live: AppSlot, old_stopped: bool, message: str, log=None) -> Dict:
         """End a deploy before the switch. The live slot kept serving — unless
         the app stops it for its release, in which case it is started again."""
-        from app.services.docker_service import DockerService
         serving = True
         if old_stopped:
-            serving = bool(DockerService.start_container(live.container_name).get('success'))
+            serving = _slot_start(live)
             if not serving:
                 message += ' Starting the previous release again FAILED — the site is down.'
         _log(log, message)
@@ -498,7 +837,7 @@ class SlotDeployService:
             # Through nginx with the site's Host header: a 502/504 here means
             # the switch routed traffic somewhere that does not answer. A 3xx
             # (the HTTPS redirect) or 4xx is nginx and the app talking.
-            via, error = health_gate.probe('http://127.0.0.1/', host_header=host)
+            via, error = health_gate.probe(NGINX_PROBE_URL, host_header=host)
             if via is None or via >= 500:
                 return False, f'{host} via nginx -> {via or error}'
         return True, status
@@ -513,10 +852,9 @@ class SlotDeployService:
     def _revert(cls, app, bad: AppSlot, good: AppSlot, reason: str, log=None,
                 remove: bool = True) -> bool:
         """Switch back to ``good`` and confirm it answers. True when it does."""
-        from app.services.docker_service import DockerService
         _log(log, f'Release failed after the switch ({reason}); switching back to slot '
                   f'{good.slot.upper()}...')
-        DockerService.start_container(good.container_name)
+        _slot_start(good)
         switched = cls._switch(app, good, bad, log)
         answered = False
         if switched['success']:
@@ -541,11 +879,10 @@ class SlotDeployService:
     def _discard(cls, slot: AppSlot, reason: str, remove: bool = True):
         """Take a failed slot out of the way. It never served traffic, so
         removing it loses nothing; a reused standby is only stopped."""
-        from app.services.docker_service import DockerService
-        if slot.container_name:
-            DockerService.stop_container(slot.container_name)
-            if remove:
-                DockerService.remove_container(slot.container_name)
+        if remove:
+            _slot_remove(slot)
+        else:
+            _slot_stop(slot)
         slot.state = 'failed'
         slot.last_health = (reason or '')[:255]
         db.session.commit()
@@ -564,9 +901,7 @@ class SlotDeployService:
 
     @staticmethod
     def _stop_standby(slot: AppSlot):
-        from app.services.docker_service import DockerService
-        if slot.container_name:
-            DockerService.stop_container(slot.container_name)
+        _slot_stop(slot)
         slot.state = 'stopped'
         slot.standby_until = None
         db.session.commit()
@@ -650,6 +985,17 @@ class SlotDeployService:
         if not rows:
             return None
         container_port = next((r.container_port for r in rows if r.container_port), None)
+        if any(r.project_name for r in rows):
+            from app.services import slot_compose_service as sc
+            original = sc.original_project(app)
+            for row in rows:
+                if row.project_name and row.project_name != original:
+                    _log(log, f'Removing slot project {row.project_name}...')
+                    _slot_remove(row)
+                db.session.delete(row)
+            app.active_slot = None
+            db.session.commit()
+            return deploy_settings.get(app, 'compose_web_port')
         for row in rows:
             if row.container_name and row.container_name != legacy_container_name(app):
                 if DockerService.get_container(row.container_name):

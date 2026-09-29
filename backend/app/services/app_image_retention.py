@@ -2,15 +2,16 @@
 
 Every build used to be tagged ``serverkit-app-<id>:latest``, so "roll back to
 v11" re-ran ``:latest`` — the image v12 had just overwritten — and rolled
-forward instead. A deploy now builds ``serverkit-app-<id>:d<deployment id>``,
-the deployment row keeps that tag, and a rollback runs the image that actually
+forward instead. A deploy now builds ``serverkit-app-<id>:d<deployment id>``
+(a compose slot deploy: ``serverkit-app-<id>-<service>:d<deployment id>``),
+the deployment keeps that tag, and a rollback runs the image that actually
 ran.
 
-The price is one image per deploy, and plan 85 is about exactly that kind of
-leak, so the tags are pruned on every successful deploy: the newest
-``keep`` deployments' images stay, plus any image a slot or the live
-deployment still references. ``docker rmi`` without ``-f`` refuses an image a
-container is using, which is a second guard, not the first.
+The price is images per deploy, and plan 85 is about exactly that kind of
+leak, so they are pruned on every successful deploy: images of the newest
+``keep`` deployments stay, plus anything a slot or the live deployment still
+references. ``docker rmi`` without ``-f`` refuses an image a container is
+using, which is a second guard, not the first.
 """
 import logging
 import re
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_KEEP = 3
 _TAG = re.compile(r'^d(\d+)$')
+_REF_DEPLOYMENT = re.compile(r'd(\d+)$')
 
 
 def repository(app_id) -> str:
@@ -29,40 +31,56 @@ def deploy_image_tag(app_id, deployment_id) -> str:
     return f'{repository(app_id)}:d{deployment_id}'
 
 
-def _local_tags(app_id):
+def _owned(app_id, repo: str) -> bool:
+    base = repository(app_id)
+    return repo == base or repo.startswith(base + '-')
+
+
+def _local_refs(app_id):
+    """``[(repository, tag)]`` of this app's images (single and per-service)."""
     from app.services.docker_service import DockerService
-    result = DockerService.run(['images', repository(app_id), '--format', '{{.Tag}}'], timeout=30)
+    result = DockerService.run(['images', '--format', '{{.Repository}}:{{.Tag}}',
+                                '--filter', f'reference={repository(app_id)}*'], timeout=30)
     if not result.get('success'):
         return None
-    return [t.strip() for t in (result.get('output') or '').splitlines() if t.strip()]
+    refs = []
+    for line in (result.get('output') or '').splitlines():
+        repo, _, tag = line.strip().rpartition(':')
+        if repo and _owned(app_id, repo):
+            refs.append((repo, tag))
+    return refs
+
+
+def _deployment_id(ref):
+    match = _REF_DEPLOYMENT.search(ref or '')
+    return int(match.group(1)) if match else None
 
 
 def prune(app_id, keep: int = DEFAULT_KEEP, protect=()) -> list:
     """Remove this app's ``d<N>`` images beyond the newest ``keep`` deployments.
 
-    ``protect`` is extra image refs that must survive (slot images, the live
-    deployment's). Best-effort: returns the refs removed, never raises.
+    ``protect`` is image refs that must survive (slot images — for a compose
+    slot a ``compose:d<N>`` marker — and the like). Best-effort: returns the
+    refs removed, never raises.
     """
     from app.models.deployment import Deployment
     from app.services.docker_service import DockerService
     try:
-        tags = _local_tags(app_id)
-        if not tags:
+        refs = _local_refs(app_id)
+        if not refs:
             return []
-        recent = [d.image_tag for d in Deployment.query.filter_by(app_id=app_id)
-                  .filter(Deployment.image_tag.isnot(None))
-                  .order_by(Deployment.id.desc()).limit(max(int(keep), 1)).all()]
+        keep_ids = {d.id for d in Deployment.query.filter_by(app_id=app_id)
+                    .order_by(Deployment.id.desc()).limit(max(int(keep), 1)).all()}
         live = Deployment.get_current(app_id)
-        keep_refs = set(recent) | {r for r in protect if r}
-        if live and live.image_tag:
-            keep_refs.add(live.image_tag)
+        if live:
+            keep_ids.add(live.id)
+        keep_ids.update(i for i in (_deployment_id(r) for r in protect) if i is not None)
         removed = []
-        for tag in tags:
-            if not _TAG.match(tag):
+        for repo, tag in refs:
+            match = _TAG.match(tag)
+            if not match or int(match.group(1)) in keep_ids:
                 continue            # :latest and anything a human tagged stay
-            ref = f'{repository(app_id)}:{tag}'
-            if ref in keep_refs:
-                continue
+            ref = f'{repo}:{tag}'
             if DockerService.remove_image(ref).get('success'):
                 removed.append(ref)
         if removed:

@@ -154,7 +154,9 @@ class DeploymentService:
                 deploy_result = cls._deploy_compose(app, deployment, log_callback)
                 deployment.build_completed_at = datetime.utcnow()
                 if not deploy_result.get('success'):
-                    return cls._fail(app, deployment, deploy_result.get('error') or 'Deploy failed')
+                    return cls._fail(app, deployment, deploy_result.get('error') or 'Deploy failed',
+                                     status=deploy_result.get('deployment_status', 'failed'),
+                                     still_serving=bool(deploy_result.get('still_serving')))
             else:
                 # Step 1: Build
                 deployment.status = 'building'
@@ -242,7 +244,7 @@ class DeploymentService:
 
             # One image per deploy is a disk leak unless something prunes it
             # (plan 85). Keeps the newest few for rollback.
-            if deployment.image_tag:
+            if app.app_type == 'docker' and not app.server_id:
                 from app.services import app_image_retention, deploy_settings
                 app_image_retention.prune(app_id, keep=deploy_settings.get(app, 'keep_images'),
                                           protect=cls._protected_images(app))
@@ -347,12 +349,37 @@ class DeploymentService:
         deployment.status = 'deploying'
         deployment.deploy_started_at = datetime.utcnow()
         db.session.commit()
+
+        from app.services.slot_deploy_service import SlotDeployService, SlotDeployError
+        if app.slot_deploys_enabled:
+            # A/B slots (plan 87 §C): the project boots as <name>-<idle slot>
+            # beside the live one instead of recreating it in place.
+            verdict = SlotDeployService.eligibility(app)
+            if not verdict['eligible']:
+                return {'success': False, 'still_serving': True,
+                        'error': 'Slot deploys are on but this app no longer qualifies: '
+                                 + ' '.join(verdict['reasons'])}
+            try:
+                return SlotDeployService.deploy_compose(app, deployment, log=log_callback)
+            except SlotDeployError as exc:
+                return {'success': False, 'still_serving': True, 'error': str(exc)}
+
+        # Slots switched off: fold the slot projects away; the in-place
+        # project publishes its own port again.
+        released_port = SlotDeployService.release_slots(app, log=log_callback)
         if log_callback:
             log_callback(f"Starting compose project {app.compose_file}...")
         result = DockerService.compose_up(app.root_path, detach=True, build=True,
                                           compose_file=app.compose_file)
         if not result.get('success'):
             return {'success': False, 'error': result.get('error') or 'docker compose up failed'}
+        if released_port and released_port != app.port:
+            app.port = released_port
+            db.session.commit()
+            if app.live_domains:
+                from app.services.site_domain_service import SiteDomainService
+                SiteDomainService.write_app_vhost(app)
+                SlotDeployService._reapply_vhost_extras(app)
         return {'success': True}
 
     @classmethod
@@ -576,7 +603,10 @@ class DeploymentService:
         if not target:
             return {'success': False, 'error': 'No previous deployment found to rollback to'}
 
-        if not target.image_tag and not target.commit_hash:
+        # A compose slot app can roll back to its standby, which needs neither
+        # an image tag nor a commit: the release is still there, stopped or warm.
+        slot_compose = cls._uses_compose(app) and app.slot_deploys_enabled
+        if not target.image_tag and not target.commit_hash and not slot_compose:
             return {
                 'success': False,
                 'error': 'Target deployment has no artifacts to rollback to'
@@ -616,7 +646,11 @@ class DeploymentService:
             db.session.commit()
 
             # Deploy the previous version
-            if target.image_tag:
+            if cls._uses_compose(app) and app.slot_deploys_enabled:
+                from app.services.slot_deploy_service import SlotDeployService
+                deploy_result = SlotDeployService.rollback_compose(
+                    app, target, rollback_deployment, log_callback)
+            elif target.image_tag:
                 # Docker rollback
                 deploy_result = cls._deploy_docker(app, rollback_deployment, log_callback)
             else:
@@ -673,15 +707,9 @@ class DeploymentService:
         app_path = app.root_path
 
         try:
-            if log_callback:
-                log_callback(f"Checking out commit {target.commit_hash[:8]}...")
-
-            # Checkout the specific commit
-            result = run_checked(['git', '-C', app_path, 'checkout', target.commit_hash],
-                                 timeout=None)
-
+            result = cls._checkout(app, target.commit_hash, log_callback)
             if not result['success']:
-                return {'success': False, 'error': result['error']}
+                return result
 
             # Run post-deploy script if configured
             deploy_config = GitService.get_app_config(app.id)
@@ -725,6 +753,16 @@ class DeploymentService:
 
         except Exception as e:
             return {'success': False, 'error': str(e)}
+
+    @staticmethod
+    def _checkout(app: Application, commit_hash: str,
+                  log_callback: Callable[[str], None] = None) -> Dict:
+        if log_callback:
+            log_callback(f"Checking out commit {commit_hash[:8]}...")
+        result = run_checked(['git', '-C', app.root_path, 'checkout', commit_hash], timeout=None)
+        if not result['success']:
+            return {'success': False, 'error': result['error']}
+        return {'success': True}
 
     @classmethod
     def _generate_diff(cls, deployment: Deployment) -> None:

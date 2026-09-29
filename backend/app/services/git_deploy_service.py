@@ -10,8 +10,6 @@ from typing import Dict, Optional
 
 from app.utils.system import run_checked
 from app.utils.git_security import git_argv, git_env, validate_ref_name
-from app.services import health_gate
-from app.services.health_gate import HealthGateError
 from app.services.deploy_lock import with_deploy_lock
 
 logger = logging.getLogger(__name__)
@@ -116,10 +114,7 @@ class GitDeployService:
             # Step 3: Restart application
             logs.append("\n=== Restarting application ===")
 
-            if webhook and webhook.zero_downtime:
-                restart_result = cls._zero_downtime_restart(app)
-            else:
-                restart_result = cls._standard_restart(app)
+            restart_result = cls._standard_restart(app)
 
             deployment.deploy_output = '\n'.join(logs) + '\n' + restart_result.get('output', '')
 
@@ -415,6 +410,16 @@ class GitDeployService:
                 except Exception:
                     pass
 
+        if getattr(app, 'slot_deploys_enabled', False):
+            # A slot app (plan 87 §C) never stops its live stack: the whole
+            # deploy — preflight, slot boot, gate, switch, watch — runs through
+            # the deploy pipeline, which records it as a Deployment too. The
+            # deploy lock is already held by this thread.
+            from app.services.deployment_service import DeploymentService
+            result = DeploymentService._deploy_locked(app.id, None, False, 'webhook', None, _log)
+            return {'success': bool(result.get('success')), 'output': '\n'.join(output),
+                    'error': result.get('error')}
+
         checks = preflight.preflight_compose_project(app.root_path, log=_log)
         if not checks.ok:
             # Nothing was stopped — the previous release is still serving.
@@ -439,76 +444,6 @@ class GitDeployService:
             'output': '\n'.join(output),
             'error': up_result.get('error')
         }
-
-    @classmethod
-    def _zero_downtime_restart(cls, app) -> Dict:
-        """Zero-downtime restart using rolling update."""
-        from app.services.docker_service import DockerService
-
-        output = []
-
-        try:
-            # Build new images first
-            build_result = run_checked(['docker', 'compose', 'build'],
-                                       cwd=app.root_path, timeout=300)
-            output.append(f"Build: {build_result['output']}")
-
-            if not build_result['success']:
-                return {
-                    'success': False,
-                    'error': build_result['error'],
-                    'output': '\n'.join(output)
-                }
-
-            # Rolling update - start new containers before stopping old
-            up_result = run_checked(
-                ['docker', 'compose', 'up', '-d', '--no-deps', '--scale', 'web=2'],
-                cwd=app.root_path, timeout=120)
-            if not up_result['success']:
-                return {'success': False, 'error': up_result['error'],
-                        'output': '\n'.join(output)}
-
-            # The new container must pass the health gate. A failure used to be
-            # logged and the rollout "succeeded" anyway (plan 87 §A3).
-            try:
-                output.append(cls._wait_for_health(app))
-            except HealthGateError as exc:
-                output.append(str(exc))
-                return {'success': False, 'error': str(exc), 'output': '\n'.join(output)}
-            finally:
-                # Scale back down either way: one live copy per app.
-                run_checked(
-                    ['docker', 'compose', 'up', '-d', '--no-deps', '--scale', 'web=1'],
-                    cwd=app.root_path, timeout=60)
-
-            output.append("Rolling update completed")
-
-            return {
-                'success': True,
-                'output': '\n'.join(output)
-            }
-
-        except subprocess.TimeoutExpired:
-            return {'success': False, 'error': 'Restart timed out', 'output': '\n'.join(output)}
-        except Exception as e:
-            return {'success': False, 'error': str(e), 'output': '\n'.join(output)}
-
-    @classmethod
-    def _wait_for_health(cls, app, fallback: int = 5, **overrides) -> str:
-        """Block until the app passes the health gate; raise if it never does.
-
-        Probes ``healthcheck_path`` (default ``/``) on the app's port with the
-        app's gate settings: 2xx/3xx only (4xx only when allowed), several in
-        a row. An app with no port cannot be probed and keeps the old fixed
-        wait. Raises :class:`HealthGateError` on failure (plan 87 §A3).
-        """
-        import time
-
-        if not getattr(app, 'port', None):
-            time.sleep(fallback)
-            return f"Waited {fallback}s (no port to health-check)"
-        result = health_gate.gate_for_app(app, **overrides)
-        return f"Health check passed ({result['url']} -> {result['status']})"
 
     @classmethod
     def _run_script(cls, script: str, cwd: str) -> Dict:

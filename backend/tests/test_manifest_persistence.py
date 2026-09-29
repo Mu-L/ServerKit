@@ -98,25 +98,3 @@ def test_apply_import_stores_manifest_when_project_and_v1(client, auth_headers, 
     stored = ApplicationManifest.query.filter_by(project_id=proj.id).first()
     assert stored is not None
     assert stored.get_normalized()['services'][0]['name'] == 'api'
-
-
-def test_health_wait_falls_back_without_path(app):
-    from app.models import Application
-    a = Application(name='x', app_type='docker', user_id=_owner().id if _owner() else 1)
-    a.healthcheck_path = None
-    a.port = None
-    msg = GitDeployService._wait_for_health(a, timeout=1, fallback=0)
-    assert 'no port to health-check' in msg
-
-
-def test_health_wait_times_out_when_unreachable(app):
-    # Plan 87 §A3: the wait is a gate now — it raises instead of returning a
-    # "did not pass" line the deploy then ignored.
-    import pytest
-    from app.models import Application
-    from app.services.health_gate import HealthGateError
-    a = Application(name='x', app_type='docker', user_id=1)
-    a.healthcheck_path = '/health'
-    a.port = 1  # nothing listening
-    with pytest.raises(HealthGateError, match='did not pass'):
-        GitDeployService._wait_for_health(a, timeout=1)

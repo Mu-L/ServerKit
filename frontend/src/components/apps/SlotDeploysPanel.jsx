@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import Modal from '@/components/Modal';
 import { Layers } from 'lucide-react';
 import api from '../../services/api';
 import { useToast } from '../../contexts/useToast.js';
@@ -34,6 +35,8 @@ const SlotDeploysPanel = ({ app, onChanged }) => {
     const [releaseCommand, setReleaseCommand] = useState(settings.release_command || '');
     const [snapshotDbs, setSnapshotDbs] = useState(settings.snapshot_databases ?? true);
     const [stopOld, setStopOld] = useState(!!settings.stop_old_before_release);
+    const [split, setSplit] = useState(null);
+    const [splitting, setSplitting] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -90,6 +93,29 @@ const SlotDeploysPanel = ({ app, onChanged }) => {
         }
     }
 
+    async function handlePreviewSplit() {
+        try {
+            setSplit(await api.previewAppComposeSplit(app.id));
+        } catch (err) {
+            toast.error(err.message || t('app.slotDeploysPanel.splitPreviewFailed', 'Could not preview the split'));
+        }
+    }
+
+    async function handleApplySplit() {
+        setSplitting(true);
+        try {
+            const data = await api.applyAppComposeSplit(app.id);
+            setStatus(data.slots);
+            setSplit(null);
+            toast.success(t('app.slotDeploysPanel.splitDone', 'Stateful services moved. The app now deploys through slots.'));
+            onChanged?.();
+        } catch (err) {
+            toast.error(err.message || t('app.slotDeploysPanel.splitFailed', 'The split failed'));
+        } finally {
+            setSplitting(false);
+        }
+    }
+
     if (!status) return null;
     const { eligibility } = status;
     const hasVolumes = (status.volumes || []).length > 0;
@@ -123,6 +149,22 @@ const SlotDeploysPanel = ({ app, onChanged }) => {
                         />
                     </div>
                 </div>
+
+                {eligibility.split_needed && (
+                    <div className="settings-row">
+                        <div className="settings-label">
+                            <span>{t('app.slotDeploysPanel.split', 'Move the stateful services first')}</span>
+                            <span className="settings-hint">
+                                {t('app.slotDeploysPanel.splitHint', 'A database or cache cannot run twice. It moves once into a shared data project that both slots reach by the same name, on the same volumes. Preview exactly what changes before anything happens.')}
+                            </span>
+                        </div>
+                        <div className="settings-control">
+                            <Button variant="outline" size="sm" onClick={handlePreviewSplit}>
+                                {t('app.slotDeploysPanel.previewSplit', 'Preview the split')}
+                            </Button>
+                        </div>
+                    </div>
+                )}
 
                 <div className="settings-row">
                     <div className="settings-label">
@@ -219,6 +261,35 @@ const SlotDeploysPanel = ({ app, onChanged }) => {
                         </Button>
                     </div>
                 </div>
+
+                {split && (
+                    <Modal
+                        open
+                        onClose={() => setSplit(null)}
+                        title={t('app.slotDeploysPanel.splitTitle', 'Move {{services}} to {{project}}', {
+                            services: split.stateful.join(', '), project: split.data_project,
+                        })}
+                        size="lg"
+                        footer={(
+                            <>
+                                <Button variant="outline" onClick={() => setSplit(null)} disabled={splitting}>
+                                    {t('common.actions.cancel', 'Cancel')}
+                                </Button>
+                                <Button onClick={handleApplySplit} disabled={splitting}>
+                                    {splitting
+                                        ? t('app.slotDeploysPanel.splitting', 'Moving…')
+                                        : t('app.slotDeploysPanel.applySplit', 'Stop the app once and move them')}
+                                </Button>
+                            </>
+                        )}
+                    >
+                        <p className="slot-split__downtime">{split.downtime}</p>
+                        <h4 className="slot-split__label">{t('app.slotDeploysPanel.dataProject', 'Shared data project')}</h4>
+                        <pre className="slot-split__yaml">{split.data_compose}</pre>
+                        <h4 className="slot-split__label">{t('app.slotDeploysPanel.slotProject', 'Each slot')}</h4>
+                        <pre className="slot-split__yaml">{split.slot_compose}</pre>
+                    </Modal>
+                )}
 
                 <p className="app-panel-hint">
                     {t('app.slotDeploysPanel.schemaRule', 'Both releases use the same database during the switch. Keep schema changes backward-compatible for one deploy: add first, deploy, remove later.')}

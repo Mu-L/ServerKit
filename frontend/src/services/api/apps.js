@@ -594,3 +594,12 @@ export async function restoreAppSlotDatabase(appId, deploymentId) {
         method: 'POST', body: { deployment_id: deploymentId },
     });
 }
+
+// Compose slot apps with a database move it once into a shared data project.
+export async function previewAppComposeSplit(appId) {
+    return this.request(`/apps/${appId}/slots/compose-split`);
+}
+
+export async function applyAppComposeSplit(appId) {
+    return this.request(`/apps/${appId}/slots/compose-split`, { method: 'POST', body: { confirm: true } });
+}

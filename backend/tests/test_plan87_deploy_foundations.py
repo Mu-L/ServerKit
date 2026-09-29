@@ -91,17 +91,20 @@ def test_old_deploy_images_are_pruned_but_recent_and_live_kept(app, monkeypatch)
         rows.append(dep)
     rows[0].status = 'live'   # an old deployment that is somehow still live
     db.session.commit()
-    tags = [f'd{d.id}' for d in rows] + ['latest']
+    refs = [d.image_tag for d in rows] + [f'serverkit-app-{row.id}:latest',
+                                          f'serverkit-app-{row.id}-web:d{rows[2].id}',
+                                          f'serverkit-app-{row.id}0:d{rows[2].id}']   # another app
     monkeypatch.setattr(DockerService, 'run', classmethod(
-        lambda cls, args, **kw: {'success': True, 'output': '\n'.join(tags)}))
+        lambda cls, args, **kw: {'success': True, 'output': '\n'.join(refs)}))
     removed = []
     monkeypatch.setattr(DockerService, 'remove_image', staticmethod(
         lambda ref, force=False: removed.append(ref) or {'success': True}))
 
     app_image_retention.prune(row.id, keep=2, protect={rows[1].image_tag})
 
-    # newest two + live (rows[0]) + protected (rows[1]) survive; :latest untouched
-    assert removed == [rows[2].image_tag]
+    # newest two + live (rows[0]) + protected (rows[1]) survive; :latest and
+    # another app's images untouched; v3's compose service image goes too.
+    assert removed == [rows[2].image_tag, f'serverkit-app-{row.id}-web:d{rows[2].id}']
 
 
 # ── A2 commit recorded after the pull ────────────────────────────────────────
@@ -204,24 +207,6 @@ def test_the_gate_reads_the_apps_settings(app):
         health_gate.wait_healthy = original
     assert seen['port'] == 9300 and seen['path'] == 'ready'
     assert seen['timeout'] == 7 and seen['allow_4xx'] is True and seen['consecutive'] == 3
-
-
-def test_a_rolling_restart_whose_new_container_is_unhealthy_fails(app, monkeypatch):
-    from app.services import git_deploy_service
-    from app.services.git_deploy_service import GitDeployService
-    row = _image_app(healthcheck_path='/health')
-    commands = []
-    monkeypatch.setattr(git_deploy_service, 'run_checked', lambda cmd, **kw: (
-        commands.append(cmd) or {'success': True, 'output': '', 'error': None}))
-
-    def unhealthy(app, port=None, **kw):
-        raise HealthGateError('Health check did not pass within 120s')
-
-    monkeypatch.setattr(health_gate, 'gate_for_app', unhealthy)
-    result = GitDeployService._zero_downtime_restart(row)
-    assert result['success'] is False and 'did not pass' in result['error']
-    # ... and it still scaled back to one copy.
-    assert commands[-1][-1] == 'web=1'
 
 
 # ── A4 settings API ──────────────────────────────────────────────────────────

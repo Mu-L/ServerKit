@@ -8,6 +8,10 @@
   POST /<app_id>/slots/switch-back   — make the standby live again (a rollback
                                        to the release it holds: seconds while
                                        it is warm)
+  GET  /<app_id>/slots/compose-split — preview moving stateful compose services
+                                       into the shared <name>-data project
+  POST /<app_id>/slots/compose-split — {confirm: true}: do it (one announced
+                                       outage; the data stays on its volumes)
   POST /<app_id>/slots/restore-db    — {deployment_id}: restore the database
                                        snapshot taken before that deployment's
                                        release ran. Destroys later writes; an
@@ -73,6 +77,30 @@ def restore_db(app_id):
     if not isinstance(deployment_id, int) or isinstance(deployment_id, bool):
         raise ValidationError("'deployment_id' is required")
     result = SlotDeployService.restore_databases(app, deployment_id)
+    if not result.get('success'):
+        return jsonify(result), 409
+    return jsonify(result)
+
+
+@app_slots_bp.route('/<int:app_id>/slots/compose-split', methods=['GET'])
+@viewer_required
+def compose_split_preview(app_id):
+    app, _ = _app(app_id)
+    result = SlotDeployService.compose_split_preview(app)
+    if not result.get('success'):
+        return jsonify(result), 409
+    return jsonify(result)
+
+
+@app_slots_bp.route('/<int:app_id>/slots/compose-split', methods=['POST'])
+@developer_required
+def compose_split_apply(app_id):
+    app, _ = _app(app_id, write=True)
+    data = request.get_json(silent=True) or {}
+    if data.get('confirm') is not True:
+        raise ValidationError("Moving the stateful services stops the app once; send "
+                              "{'confirm': true} after reading the preview")
+    result = SlotDeployService.compose_split_apply(app)
     if not result.get('success'):
         return jsonify(result), 409
     return jsonify(result)

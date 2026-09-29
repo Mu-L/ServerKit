@@ -28,6 +28,12 @@ DEFAULTS = {
     'release_command': None,
     'snapshot_databases': True,
     'stop_old_before_release': False,
+    # Compose slots (§C), written by the panel, never by the settings API:
+    # the web service, the port it published before slots, and whether the
+    # stateful services have moved to the shared data project.
+    'compose_web': None,
+    'compose_web_port': None,
+    'compose_data_split': False,
 }
 
 # key -> (type, min, max). Anything outside is rejected, not clamped: a typo'd
@@ -101,6 +107,15 @@ def validate(changes) -> tuple:
             return None, f'{key} must be between {low} and {high}'
         clean[key] = number
     return clean, None
+
+
+def set_internal(app, key, value) -> None:
+    """Record a panel-owned setting (no validation, no commit)."""
+    if key not in DEFAULTS or key in _RULES:
+        raise KeyError(key)
+    current = stored(app)
+    current[key] = value
+    app.deploy_settings = json.dumps(current)
 
 
 def update(app, changes) -> tuple:

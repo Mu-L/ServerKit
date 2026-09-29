@@ -6844,7 +6844,18 @@
             "snapshotHint": "Vuelca las bases de datos de esta app antes de ejecutar el comando de publicación, para poder deshacer una migración después de volver atrás.",
             "stopOld": "Detener la versión en vivo antes del comando de publicación",
             "stopOldHint": "Para cambios de esquema que la versión en marcha no soporta. El sitio queda caído desde el comando de publicación hasta que la versión nueva pasa su comprobación de salud; si algo falla, la versión anterior vuelve a arrancar.",
-            "releasePlaceholder": "npm run migrate"
+            "releasePlaceholder": "npm run migrate",
+            "split": "Primero mover los servicios con estado",
+            "splitHint": "Una base de datos o una caché no puede ejecutarse dos veces. Se mueve una sola vez a un proyecto de datos compartido al que ambas ranuras llegan con el mismo nombre, sobre los mismos volúmenes. Revisa exactamente qué cambia antes de que pase nada.",
+            "previewSplit": "Ver la separación",
+            "splitPreviewFailed": "No se pudo mostrar la separación",
+            "splitDone": "Servicios con estado movidos. La app ahora se despliega por ranuras.",
+            "splitFailed": "La separación falló",
+            "splitTitle": "Mover {{services}} a {{project}}",
+            "splitting": "Moviendo…",
+            "applySplit": "Detener la app una vez y moverlos",
+            "dataProject": "Proyecto de datos compartido",
+            "slotProject": "Cada ranura"
         }
     },
     "auth": {

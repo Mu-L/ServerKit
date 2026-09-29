@@ -187,6 +187,7 @@ Regenerate (backend/):
 - `GET /apps/{app_id}/resources`
 - `GET /apps/{app_id}/sleep-policy`
 - `GET /apps/{app_id}/slots`
+- `GET /apps/{app_id}/slots/compose-split`
 - `GET /apps/{app_id}/snapshots`
 - `GET /apps/{app_id}/snapshots/{snap_id}`
 - `GET /apps/{app_id}/snapshots/{snap_id}/diff`
@@ -793,6 +794,7 @@ Regenerate (backend/):
 - `POST /apps/{app_id}/restart`
 - `POST /apps/{app_id}/rollback`
 - `POST /apps/{app_id}/sleep`
+- `POST /apps/{app_id}/slots/compose-split`
 - `POST /apps/{app_id}/slots/restore-db`
 - `POST /apps/{app_id}/slots/switch-back`
 - `POST /apps/{app_id}/snapshots/{snap_id}/restore`
