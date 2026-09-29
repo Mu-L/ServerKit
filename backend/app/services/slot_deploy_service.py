@@ -906,6 +906,25 @@ class SlotDeployService:
         slot.standby_until = None
         db.session.commit()
 
+    @staticmethod
+    def is_compose_slot_app(app) -> bool:
+        """A local compose app whose live release is a slot project."""
+        return bool(getattr(app, 'slot_deploys_enabled', False) and getattr(app, 'active_slot', None)
+                    and getattr(app, 'compose_file', None) and not getattr(app, 'server_id', None))
+
+    @classmethod
+    def live_action(cls, app, action: str) -> Dict:
+        """start / stop / restart the live slot's compose project. Stopping
+        the app also stops its warm standby."""
+        from app.services import slot_compose_service as sc
+        live = AppSlot.query.filter_by(application_id=app.id, slot=app.active_slot).first()
+        if live is None or not live.project_name:
+            return {'success': False, 'error': 'The live slot has no compose project.'}
+        result = sc.compose(live.project_name, _compose_files(live), action, cwd=app.root_path)
+        if action == 'stop':
+            cls.stop_standby(app)
+        return {'success': bool(result.get('success')), 'error': result.get('error')}
+
     @classmethod
     def stop_standby(cls, app) -> None:
         """Stop the app's warm standby now (the app itself is being stopped)."""
@@ -923,6 +942,18 @@ class SlotDeployService:
         import json
         from app.services.docker_service import DockerService
         from app.services.worker_process_service import container_prefix
+        rows = AppSlot.query.filter_by(application_id=app.id).all()
+        if any(r.project_name for r in rows):
+            from app.services import slot_compose_service as sc
+            listed = []
+            for row in sorted(rows, key=lambda r: r.slot != app.active_slot):
+                if not row.project_name:
+                    continue
+                for c in sc.project_containers(row.project_name):
+                    if row.slot != app.active_slot:
+                        c = {**c, 'service': f"standby-{c['service']}"}
+                    listed.append(c)
+            return listed
         live = live_container_name(app)
         rows = AppSlot.query.filter_by(application_id=app.id).all()
         slot_names = {r.container_name for r in rows if r.container_name}

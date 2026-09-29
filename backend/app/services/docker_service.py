@@ -516,9 +516,10 @@ class DockerService:
             return []
 
         app_id = cls._app_attr(app, 'id')
-        if (app_id and not compose_file and not isinstance(app, dict)
+        if (app_id and not isinstance(app, dict)
                 and cls._app_attr(app, 'slot_deploys_enabled') and cls._app_attr(app, 'active_slot')):
-            # A slot app (plan 87): the live slot, its standby, its workers.
+            # A slot app (plan 87): the live slot, its standby, its workers
+            # (for compose, the live and standby projects).
             from app.services.slot_deploy_service import SlotDeployService
             return SlotDeployService.containers(app)
         containers = cls.compose_ps(root_path, compose_file=compose_file)

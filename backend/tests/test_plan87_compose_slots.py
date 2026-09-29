@@ -348,3 +348,32 @@ def test_a_template_update_on_slots_never_stops_the_live_stack(app, compose_worl
     assert (w.root / 'docker-compose.yml').read_text() == 'services: {web: {image: new}}'
     assert 'IN-PLACE down' not in [e for e, _ in w.timeline] and w.outage() == []
 
+
+def test_lifecycle_and_status_follow_the_live_project(app, compose_world):
+    from app.services import application_lifecycle_service as lifecycle
+    from app.services.container_status_service import _ContainerIndex
+    w = compose_world
+    row = _compose_app(w)
+    SlotDeployService.set_enabled(row, True)
+    assert DeploymentService.deploy(row.id)['success']
+
+    lifecycle.restart_application(row)
+    assert w.compose_calls[-1] == ('shop-b', 'restart')
+
+    index = _ContainerIndex([
+        {'id': '1', 'name': 'shop-b-web-1', 'project': 'shop-b', 'state': 'running'},
+        {'id': '2', 'name': 'x-web-1', 'project': sc.original_project(row), 'state': 'exited'},
+    ])
+    assert [c['name'] for c in index.for_app(row)] == ['shop-b-web-1'], 'the standby is not counted'
+
+
+def test_image_update_on_a_slot_app_is_a_queued_slot_deploy(app, compose_world, client,
+                                                            auth_headers, monkeypatch):
+    from app.services.deployment_job_service import DeploymentJobService
+    w = compose_world
+    row = _compose_app(w)
+    SlotDeployService.set_enabled(row, True)
+    monkeypatch.setattr(DeploymentJobService, '_enqueue_app_deploy', classmethod(lambda cls, job: None))
+    resp = client.post(f'/api/v1/apps/{row.id}/image-update/apply', headers=auth_headers)
+    assert resp.status_code == 202, resp.get_json()
+    assert 'IN-PLACE up' not in [e for e, _ in w.timeline]

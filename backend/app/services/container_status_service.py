@@ -361,6 +361,12 @@ class _ContainerIndex:
 
     def for_app(self, app) -> List[Dict[str, Any]]:
         """Containers belonging to ``app``, in the trust order documented above."""
+        slot_project = _live_slot_project(app)
+        if slot_project:
+            # A compose app on A/B slots (plan 87): only the live slot's
+            # project counts. The standby is not rolled into the status, so a
+            # stopped standby never reads as a degraded app.
+            return self.by_project.get(slot_project, [])
         root_path = getattr(app, 'root_path', None)
         for key in (_norm_path(root_path), _real_path(root_path)):
             if key and key in self.by_dir:
@@ -375,6 +381,18 @@ class _ContainerIndex:
             return [self.by_id[container_id]]
 
         return []
+
+
+def _live_slot_project(app) -> Optional[str]:
+    if not (getattr(app, 'slot_deploys_enabled', False) and getattr(app, 'active_slot', None)
+            and getattr(app, 'compose_file', None)):
+        return None
+    try:
+        from app.models.app_slot import AppSlot
+        row = AppSlot.query.filter_by(application_id=app.id, slot=app.active_slot).first()
+    except Exception:  # noqa: BLE001 - no app context / table: fall back to the usual mapping
+        return None
+    return (row.project_name or '').lower() or None if row else None
 
 
 def _collect_container_index() -> _ContainerIndex:

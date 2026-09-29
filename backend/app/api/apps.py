@@ -1431,6 +1431,19 @@ def apply_image_update(app_id):
     if not _can_edit_app(user, app):
         return jsonify({'error': 'Access denied'}), 403
 
+    # A slot app never recreates its live stack in place: the newest images
+    # go through a slot deploy (pulled in its preflight, gated, switched).
+    from app.services.slot_deploy_service import SlotDeployService
+    if SlotDeployService.is_compose_slot_app(app):
+        from app.services.deployment_job_service import DeploymentJobService
+        queued = DeploymentJobService.enqueue_app_deploy(app, user_id=current_user_id,
+                                                         trigger='image_update')
+        if not queued.get('success'):
+            from app.exceptions import ConflictError
+            raise ConflictError(queued.get('error') or 'Failed to queue the update')
+        return jsonify({'message': 'Image update queued as a slot deploy',
+                        'deploy_job_id': queued['job_id'], 'app': app.to_dict()}), 202
+
     # Auto-apply is only safe for compose-managed apps; recreating a standalone
     # container would need its full run spec, which we don't store.
     if app.app_type != 'docker' or not app.root_path or not app.compose_file:

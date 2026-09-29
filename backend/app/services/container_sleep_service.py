@@ -48,6 +48,9 @@ class ContainerSleepService:
     def _stop(cls, app):
         if app.server_id:
             return {'success': False, 'error': 'Sleep is not yet supported for apps on remote servers'}
+        from app.services.slot_deploy_service import SlotDeployService
+        if SlotDeployService.is_compose_slot_app(app):
+            return SlotDeployService.live_action(app, 'stop')
         if app.app_type == 'docker' and app.root_path and app.compose_file:
             return DockerService.compose_down(app.root_path, compose_file=app.compose_file)
         if app.container_id:
@@ -58,6 +61,9 @@ class ContainerSleepService:
     def _start(cls, app):
         if app.server_id:
             return {'success': False, 'error': 'Wake is not yet supported for apps on remote servers'}
+        from app.services.slot_deploy_service import SlotDeployService
+        if SlotDeployService.is_compose_slot_app(app):
+            return SlotDeployService.live_action(app, 'start')
         if app.app_type == 'docker' and app.root_path and app.compose_file:
             return DockerService.compose_up(app.root_path, detach=True, compose_file=app.compose_file)
         if app.container_id:
