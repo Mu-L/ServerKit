@@ -24,6 +24,7 @@ from app.models.application import Application
 from app.services.build_service import BuildService
 from app.services.docker_service import DockerService
 from app.services.git_service import GitService
+from app.services import deploy_stages
 from app import paths
 
 
@@ -163,6 +164,7 @@ class DeploymentService:
                 if log_callback:
                     log_callback(f"Starting build for {app.name}...")
 
+                deploy_stages.mark('Build')
                 # An immutable tag per deployment: a rollback then redeploys
                 # the image that actually ran, not whatever :latest became (§A1).
                 from app.services.app_image_retention import deploy_image_tag

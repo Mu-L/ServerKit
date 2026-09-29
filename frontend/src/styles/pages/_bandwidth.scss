@@ -311,3 +311,66 @@
         &--here { color: var(--text-dim); }
     }
 }
+
+// Service detail Overview: A/B slot deploys (plan 87 §F).
+// Component: service-detail/SlotsCard.
+.slots-card {
+    &__slots {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin: 0;
+    }
+
+    &__row {
+        display: grid;
+        grid-template-columns: 72px 1fr;
+        align-items: center;
+        gap: 12px;
+
+        dt {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--text-dim);
+        }
+
+        dd {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px;
+            margin: 0;
+        }
+    }
+
+    &__release {
+        font-family: var(--mono);
+        font-size: 13px;
+        color: var(--text);
+    }
+
+    &__meta,
+    &__hint {
+        margin: 0;
+        font-size: 12.5px;
+        color: var(--text-dim);
+    }
+
+    &__off {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    &__reasons {
+        margin: 6px 0 0;
+        padding-inline-start: 18px;
+        font-size: 12.5px;
+        color: var(--text-dim);
+
+        li + li { margin-top: 4px; }
+
+        &--warn { color: var(--amber); }
+    }
+}

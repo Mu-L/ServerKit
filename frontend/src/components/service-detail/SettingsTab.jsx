@@ -30,6 +30,7 @@ import VolumesPanel from '../apps/VolumesPanel';
 import ResourceLimitsPanel from '../apps/ResourceLimitsPanel';
 import MicroCachePanel from '../apps/MicroCachePanel';
 import DeploySafetyPanel from '../apps/DeploySafetyPanel';
+import SlotDeploysPanel from '../apps/SlotDeploysPanel';
 import AppWafPanel from '../apps/AppWafPanel';
 import BuildTab from '../appdetail/BuildTab';
 import DeployTab from '../appdetail/DeployTab';
@@ -356,6 +357,7 @@ const SettingsTab = ({ app, deployConfig, domains, primaryDomain, onUpdate }) =>
                     <div className="svc-settings__section">
                         <h3 className="svc-settings__section-title">{t('app.settingsTab.healthRollout', 'Health & Rollout')}</h3>
                         <DeploySafetyPanel app={app} onChanged={onUpdate} />
+                        <SlotDeploysPanel app={app} onChanged={onUpdate} />
                     </div>
                 )}
 

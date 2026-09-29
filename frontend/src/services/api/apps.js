@@ -574,3 +574,17 @@ export async function getAppHints(appId) {
 export async function setImmutableAssets(appId, enabled) {
     return this.request(`/apps/${appId}/immutable-assets`, { method: 'PUT', body: { enabled } });
 }
+
+// A/B slot deploys (plan 87): slot state + eligibility, the opt-in, and the
+// instant switch back to the standby.
+export async function getAppSlots(appId) {
+    return this.request(`/apps/${appId}/slots`);
+}
+
+export async function setAppSlots(appId, enabled) {
+    return this.request(`/apps/${appId}/slots`, { method: 'PUT', body: { enabled } });
+}
+
+export async function switchBackAppSlot(appId) {
+    return this.request(`/apps/${appId}/slots/switch-back`, { method: 'POST' });
+}

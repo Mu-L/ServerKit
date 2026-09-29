@@ -229,6 +229,16 @@ class SlotDeployService:
                                           user_id=user_id, log_callback=log)
 
     @classmethod
+    def plan_steps(cls, app):
+        """The Deploy Console stages of a slot deploy, or None for an app
+        that deploys in place. PipelineStrip renders ``job.plan.steps`` as is."""
+        if not app.slot_deploys_enabled:
+            return None
+        idle = other(app.active_slot) if app.active_slot in SLOTS else 'b'
+        return ['Preflight', 'Build', f'Boot slot {idle.upper()}', 'Health gate',
+                'Switch', 'Watch']
+
+    @classmethod
     def protected_images(cls, app) -> set:
         return {row.image_ref for row in AppSlot.query.filter_by(application_id=app.id).all()
                 if row.image_ref}

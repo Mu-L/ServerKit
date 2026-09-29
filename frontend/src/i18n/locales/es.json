@@ -6795,6 +6795,42 @@
             "saved": "Comprobación de salud guardada.",
             "timeout": "Tiempo límite (segundos)",
             "timeoutHint": "Cuánto puede tardar una versión nueva en empezar a responder ({{min}}–{{max}})."
+        },
+        "slots": {
+            "title": "Despliegues por ranuras",
+            "on": "Activo",
+            "off": "Inactivo",
+            "live": "En vivo",
+            "standby": "En espera",
+            "switchBack": "Volver atrás",
+            "switchBackConfirm": "¿Enviar el tráfico de vuelta a la ranura {{slot}} (v{{version}})? La base de datos no se revierte.",
+            "switchedBack": "El tráfico volvió a la versión anterior.",
+            "switchBackFailed": "No se pudo volver atrás",
+            "switching": "Cambiando…",
+            "warmLeft": "lista, quedan {{count}} min",
+            "stopped": "detenida, arranca al volver atrás",
+            "noStandby": "Todavía ninguna. El próximo despliegue arranca junto a la versión en vivo, y esta pasa a estar en espera.",
+            "explain": "Un despliegue arranca la versión nueva junto a la que está en vivo, comprueba que responde y luego cambia el tráfico. Una versión que falla nunca reemplaza a la que funciona, y la anterior queda lista para volver atrás al instante.",
+            "eligible": "Esta app cumple los requisitos.",
+            "turnOn": "Actívalo en Ajustes"
+        },
+        "slotDeploysPanel": {
+            "title": "Despliegues por ranuras",
+            "enabled": "Despliegues por ranuras activos. El contenedor en marcha es ahora la ranura A; el próximo despliegue arranca la ranura B.",
+            "disabled": "Despliegues por ranuras desactivados.",
+            "toggleFailed": "No se pudo cambiar el despliegue por ranuras",
+            "saved": "Ajustes de despliegue guardados.",
+            "saveFailed": "No se pudieron guardar los ajustes de despliegue",
+            "intro": "Cada despliegue arranca la versión nueva en una segunda ranura, en su propio puerto, mientras la que está en vivo sigue sirviendo. Solo cambia el tráfico cuando la versión nueva pasa su comprobación de salud, la vigila un rato y vuelve atrás sola si falla. La versión anterior queda lista para volver atrás a mano al instante.",
+            "enable": "Usar despliegues por ranuras",
+            "enableHint": "Activarlo no reinicia nada: el contenedor en marcha pasa a ser la ranura A.",
+            "watch": "Ventana de vigilancia (segundos)",
+            "watchHint": "Cuánto se vigila una versión después de ponerse en vivo. Si deja de responder en ese tiempo, el tráfico vuelve a la versión anterior. 0 desactiva la vigilancia.",
+            "standby": "Mantener lista la versión anterior (minutos)",
+            "standbyHint": "Mientras está lista, volver atrás tarda segundos. Después se detiene: deja de usar memoria, y volver atrás la arranca primero.",
+            "volumes": "Dos copias pueden compartir los volúmenes",
+            "volumesHint": "Durante unos segundos en cada cambio, las dos versiones montan los mismos volúmenes. Déjalo desactivado si la app guarda ahí algo como SQLite, que se rompe cuando dos procesos escriben a la vez.",
+            "schemaRule": "Las dos versiones usan la misma base de datos durante el cambio. Mantén los cambios de esquema compatibles durante un despliegue: primero añade, despliega y elimina después."
         }
     },
     "auth": {

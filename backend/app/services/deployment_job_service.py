@@ -142,16 +142,17 @@ class DeploymentJobService:
         # Execution is delegated to DeploymentService.deploy; these steps only
         # drive the progress bar and mirror the milestones _run_app_deploy logs.
         # Deploy options ride in the plan so the async runner can honor them.
+        # A slot deploy (plan 87) reports its own stages as it reaches them.
+        from app.services.slot_deploy_service import SlotDeployService
+        slot_steps = SlotDeployService.plan_steps(app)
         job.set_plan({
             'app_id': app.id,
             'app_name': app.name,
             'no_cache': bool(no_cache),
             'version_tag': version_tag,
-            'steps': [
-                {'name': 'Prepare deployment'},
-                {'name': 'Build application'},
-                {'name': 'Start containers'},
-            ],
+            'slot_stages': bool(slot_steps),
+            'steps': [{'name': name} for name in (slot_steps or [
+                'Prepare deployment', 'Build application', 'Start containers'])],
         })
         db.session.add(job)
         db.session.commit()
@@ -333,28 +334,35 @@ class DeploymentJobService:
                 raise RuntimeError(f'Application not found for deployment job {job.id}')
 
             job.mark_running()
+            plan = job.get_plan()
+            steps = [s.get('name') for s in plan.get('steps') or []]
+            slot_stages = bool(plan.get('slot_stages'))
             # set_step handles the current_step/name row update + commit, flushes
             # buffered lines, records per-step timings, and emits a live status.
-            runner.stream.set_step(1, 'Prepare deployment')
+            runner.stream.set_step(1, steps[0] if slot_stages else 'Prepare deployment')
             runner.log('info', f"Deploying application '{app.name}' (trigger: {job.trigger})")
 
-            runner.stream.set_step(2, 'Build application')
+            if not slot_stages:
+                runner.stream.set_step(2, 'Build application')
 
-            plan = job.get_plan()
+            from app.services import deploy_stages
             from app.services.deployment_service import DeploymentService
-            result = DeploymentService.deploy(
-                app.id,
-                user_id=job.requested_by,
-                trigger=job.trigger or 'manual',
-                no_cache=bool(plan.get('no_cache')),
-                version_tag=plan.get('version_tag'),
-                log_callback=lambda line: runner.log('info', line),
-            )
+            with deploy_stages.reporting(_stage_advancer(runner, steps) if slot_stages
+                                         else (lambda name: None)):
+                result = DeploymentService.deploy(
+                    app.id,
+                    user_id=job.requested_by,
+                    trigger=job.trigger or 'manual',
+                    no_cache=bool(plan.get('no_cache')),
+                    version_tag=plan.get('version_tag'),
+                    log_callback=lambda line: runner.log('info', line),
+                )
             if not result.get('success'):
                 raise RuntimeError(result.get('error') or 'Deployment failed')
 
-            runner.stream.set_step(3, 'Start containers')
-            runner.log('info', 'Containers started')
+            if not slot_stages:
+                runner.stream.set_step(3, 'Start containers')
+                runner.log('info', 'Containers started')
 
             deployment = result.get('deployment') or {}
             job.mark_succeeded()
@@ -749,3 +757,23 @@ class DeploymentJobService:
         if not server_id or server_id == 'local':
             return None
         return server_id
+
+
+def _stage_advancer(runner, steps):
+    """Map a stage the deploy reports onto the job's step list (plan 87 §F).
+
+    Matched by name, or by its first two words ("Boot slot") because which
+    slot is idle can change between enqueue and run when deploys queue up.
+    Only ever moves forward.
+    """
+    state = {'index': 1}
+
+    def advance(name):
+        prefix = ' '.join(name.split()[:2])
+        for index, step in enumerate(steps, start=1):
+            if step == name or (step or '').startswith(prefix):
+                if index > state['index']:
+                    state['index'] = index
+                    runner.stream.set_step(index, name)
+                return
+    return advance

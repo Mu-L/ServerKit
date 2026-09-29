@@ -529,3 +529,44 @@ def test_a_vhost_restore_point_brings_back_the_slot_it_pointed_at(app, world, mo
     assert row.active_slot == 'a' and row.port == 8100
     assert world.containers[f'serverkit-app-{row.id}']['running'] is True
 
+
+# ── §F: the Deploy Console walks the slot stages ─────────────────────────────
+
+def test_a_slot_deploy_job_reports_each_stage_to_the_console(app, world, monkeypatch):
+    from app.models.deployment_job import DeploymentJob
+    from app.services.deployment_job_service import DeploymentJobService
+    monkeypatch.setattr(DeploymentJobService, '_enqueue_app_deploy', classmethod(lambda cls, job: None))
+    row = _live_app(world)
+    _enable(row)
+
+    queued = DeploymentJobService.enqueue_app_deploy(row)
+    job = db.session.get(DeploymentJob, queued['job_id'])
+    steps = [s['name'] for s in job.get_plan()['steps']]
+    assert steps == ['Preflight', 'Build', 'Boot slot B', 'Health gate', 'Switch', 'Watch']
+
+    from app.services.run_log_service import RunLogStream
+    reached = []
+    real = RunLogStream.set_step
+
+    def spy(self, index, name):
+        reached.append((index, name))
+        return real(self, index, name)
+
+    monkeypatch.setattr(RunLogStream, 'set_step', spy)
+
+    result = DeploymentJobService.run_job(job.id)
+
+    assert result['success'], result
+    assert reached == [(1, 'Preflight'), (2, 'Build'), (3, 'Boot slot B'), (4, 'Health gate'),
+                       (5, 'Switch'), (6, 'Watch')]
+
+
+def test_an_in_place_deploy_job_keeps_its_three_steps(app, world, monkeypatch):
+    from app.models.deployment_job import DeploymentJob
+    from app.services.deployment_job_service import DeploymentJobService
+    monkeypatch.setattr(DeploymentJobService, '_enqueue_app_deploy', classmethod(lambda cls, job: None))
+    row = _live_app(world)
+    queued = DeploymentJobService.enqueue_app_deploy(row)
+    job = db.session.get(DeploymentJob, queued['job_id'])
+    assert [s['name'] for s in job.get_plan()['steps']] == [
+        'Prepare deployment', 'Build application', 'Start containers']
