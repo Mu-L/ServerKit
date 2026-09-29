@@ -21,6 +21,13 @@ DEFAULTS = {
     'watch_seconds': 60,
     'standby_warm_minutes': 10,
     'slot_volumes_confirmed': False,
+    # Release phase (§D): a command to run once before the switch (overrides
+    # the Procfile's release: line), whether to dump the app's databases
+    # first, and the announced-downtime fallback for schema changes that
+    # cannot stay backward-compatible for one deploy.
+    'release_command': None,
+    'snapshot_databases': True,
+    'stop_old_before_release': False,
 }
 
 # key -> (type, min, max). Anything outside is rejected, not clamped: a typo'd
@@ -33,6 +40,9 @@ _RULES = {
     'watch_seconds': (int, 0, 900),
     'standby_warm_minutes': (int, 0, 1440),
     'slot_volumes_confirmed': (bool, None, None),
+    'release_command': (str, None, 500),
+    'snapshot_databases': (bool, None, None),
+    'stop_old_before_release': (bool, None, None),
 }
 
 
@@ -73,6 +83,13 @@ def validate(changes) -> tuple:
             if not isinstance(value, bool):
                 return None, f'{key} must be true or false'
             clean[key] = value
+            continue
+        if kind is str:
+            if not isinstance(value, str):
+                return None, f'{key} must be text'
+            if len(value) > high:
+                return None, f'{key} must be at most {high} characters'
+            clean[key] = value.strip() or None
             continue
         if isinstance(value, bool):
             return None, f'{key} must be a number'

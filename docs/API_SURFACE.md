@@ -793,6 +793,7 @@ Regenerate (backend/):
 - `POST /apps/{app_id}/restart`
 - `POST /apps/{app_id}/rollback`
 - `POST /apps/{app_id}/sleep`
+- `POST /apps/{app_id}/slots/restore-db`
 - `POST /apps/{app_id}/slots/switch-back`
 - `POST /apps/{app_id}/snapshots/{snap_id}/restore`
 - `POST /apps/{app_id}/start`

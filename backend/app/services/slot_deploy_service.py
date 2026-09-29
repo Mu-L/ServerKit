@@ -64,6 +64,11 @@ def live_container_name(app) -> str:
     return legacy_container_name(app)
 
 
+def _restorable(app):
+    from app.services import release_phase_service
+    return release_phase_service.restorable(app)
+
+
 class SlotDeployError(RuntimeError):
     pass
 
@@ -183,6 +188,7 @@ class SlotDeployService:
             'active_slot': app.active_slot,
             'eligibility': cls.eligibility(app),
             'volumes': sorted(v.name for v in app.volumes),
+            'restorable_db': _restorable(app),
             'slots': [rows[s].to_dict() for s in SLOTS if s in rows],
         }
 
@@ -235,8 +241,24 @@ class SlotDeployService:
         if not app.slot_deploys_enabled:
             return None
         idle = other(app.active_slot) if app.active_slot in SLOTS else 'b'
-        return ['Preflight', 'Build', f'Boot slot {idle.upper()}', 'Health gate',
-                'Switch', 'Watch']
+        return ['Preflight', 'Build', 'Snapshot', 'Release', f'Boot slot {idle.upper()}',
+                'Health gate', 'Switch', 'Watch']
+
+    @classmethod
+    def restore_databases(cls, app, deployment_id) -> Dict:
+        """Put the app's databases back to before ``deployment_id``'s release."""
+        from app.models.deployment import Deployment
+        from app.services import release_phase_service
+        from app.services.deploy_lock import deploy_lock
+        deployment = Deployment.query.filter_by(id=deployment_id, app_id=app.id).first()
+        if deployment is None:
+            return {'success': False, 'error': 'Deployment not found'}
+        with deploy_lock(app.id, 'database restore'):
+            result = release_phase_service.restore_databases(app, deployment)
+        if result.get('success'):
+            deployment.update_metadata('db_restored_at', _now().isoformat())
+            db.session.commit()
+        return result
 
     @classmethod
     def protected_images(cls, app) -> set:
@@ -274,6 +296,32 @@ class SlotDeployService:
         reuse = (idle.image_ref == image and idle.state in ('standby', 'stopped')
                  and idle.container_name and DockerService.get_container(idle.container_name))
 
+        # ---- snapshot + release (§D): once, before the switch, old slot live
+        from app.services import release_phase_service as release
+        stage('Snapshot')
+        release.snapshot_databases(app, deployment, log)
+        stage('Release')
+        old_stopped = False
+        command, source = release.resolve_release_command(app)
+        if command and (reuse or getattr(deployment, 'deploy_trigger', None) == 'rollback'):
+            # Rolling code back never re-runs migrations; the DB stays as it is.
+            _log(log, f'Rollback: not running the release command ({source}).')
+            command = None
+        if command:
+            if deploy_settings.get(app, 'stop_old_before_release'):
+                _log(log, f'Stopping slot {live.slot.upper()} before the release command, as this '
+                          'app is set to: the site is down until the new release passes its '
+                          'health check.')
+                DockerService.stop_container(live.container_name)
+                old_stopped = True
+            ran = release.run_release(app, image, env, volumes, command, log)
+            deployment.update_metadata('release_ran', True)
+            db.session.commit()
+            if not ran['success']:
+                return cls._abort(app, live, old_stopped,
+                                  f"The release command ({source}) failed: {ran['error']}. "
+                                  f'The new release was not started; the site is still serving {version}.')
+
         name = idle.container_name if reuse else slot_container_name(app, idle.slot)
         stage(f'Boot slot {idle.slot.upper()}')
         if reuse:
@@ -310,10 +358,9 @@ class SlotDeployService:
                 idle.state = 'failed'
                 idle.last_health = (run.get('error') or 'did not start')[:255]
                 db.session.commit()
-                message = (f"The new release did not start: {run.get('error')}. "
-                           f'The site is still serving {version}.')
-                _notify('app.deploy_aborted', app, 'warning', message)
-                return {'success': False, 'still_serving': True, 'error': message}
+                return cls._abort(app, live, old_stopped,
+                                  f"The new release did not start: {run.get('error')}. "
+                                  f'The site is still serving {version}.')
             connect_shared_network(app, name)
 
         stage('Health gate')
@@ -323,10 +370,9 @@ class SlotDeployService:
             idle.last_health = f"{result['status']} on {result['url']}"[:255]
         except HealthGateError as exc:
             cls._discard(idle, str(exc), remove=not reuse)
-            message = f'The new release never became healthy: {exc}. The site is still serving {version}.'
-            _log(log, message)
-            _notify('app.deploy_aborted', app, 'warning', message)
-            return {'success': False, 'still_serving': True, 'error': message}
+            return cls._abort(app, live, old_stopped,
+                              f'The new release never became healthy: {exc}. '
+                              f'The site is still serving {version}.', log=log)
         idle.state = 'healthy'
         db.session.commit()
 
@@ -334,9 +380,9 @@ class SlotDeployService:
         switched = cls._switch(app, idle, live, log)
         if not switched['success']:
             cls._discard(idle, switched['error'], remove=not reuse)
-            message = f"Could not switch traffic: {switched['error']}. The site is still serving {version}."
-            _notify('app.deploy_aborted', app, 'warning', message)
-            return {'success': False, 'still_serving': True, 'error': message}
+            return cls._abort(app, live, old_stopped,
+                              f"Could not switch traffic: {switched['error']}. "
+                              f'The site is still serving {version}.')
 
         stage('Watch')
         watched = cls._watch(app, idle, log)
@@ -351,6 +397,21 @@ class SlotDeployService:
         cls._make_standby(app, live, log)
         workers = WorkerProcessService.deploy(app, image, env, volumes, log=log)
         return {'success': True, 'slot': idle.slot, 'workers': workers, 'container_id': name}
+
+    @classmethod
+    def _abort(cls, app, live: AppSlot, old_stopped: bool, message: str, log=None) -> Dict:
+        """End a deploy before the switch. The live slot kept serving — unless
+        the app stops it for its release, in which case it is started again."""
+        from app.services.docker_service import DockerService
+        serving = True
+        if old_stopped:
+            serving = bool(DockerService.start_container(live.container_name).get('success'))
+            if not serving:
+                message += ' Starting the previous release again FAILED — the site is down.'
+        _log(log, message)
+        _notify('app.deploy_aborted' if serving else 'app.deploy_revert_failed', app,
+                'warning' if serving else 'critical', message)
+        return {'success': False, 'still_serving': serving, 'error': message}
 
     # ------------------------------------------------------------------ #
     # Switch / watch / revert / standby

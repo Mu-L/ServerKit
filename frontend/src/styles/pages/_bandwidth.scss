@@ -357,6 +357,16 @@
         color: var(--text-dim);
     }
 
+    &__restore {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border-soft);
+    }
+
     &__off {
         display: flex;
         flex-direction: column;

@@ -8,6 +8,10 @@
   POST /<app_id>/slots/switch-back   — make the standby live again (a rollback
                                        to the release it holds: seconds while
                                        it is warm)
+  POST /<app_id>/slots/restore-db    — {deployment_id}: restore the database
+                                       snapshot taken before that deployment's
+                                       release ran. Destroys later writes; an
+                                       explicit second step after a rollback.
 """
 from flask import Blueprint, jsonify, request
 
@@ -55,6 +59,20 @@ def set_slots(app_id):
 def switch_back(app_id):
     app, user = _app(app_id, write=True)
     result = SlotDeployService.switch_back(app, user_id=user.id)
+    if not result.get('success'):
+        return jsonify(result), 409
+    return jsonify(result)
+
+
+@app_slots_bp.route('/<int:app_id>/slots/restore-db', methods=['POST'])
+@developer_required
+def restore_db(app_id):
+    app, _ = _app(app_id, write=True)
+    data = request.get_json(silent=True) or {}
+    deployment_id = data.get('deployment_id')
+    if not isinstance(deployment_id, int) or isinstance(deployment_id, bool):
+        raise ValidationError("'deployment_id' is required")
+    result = SlotDeployService.restore_databases(app, deployment_id)
     if not result.get('success'):
         return jsonify(result), 409
     return jsonify(result)

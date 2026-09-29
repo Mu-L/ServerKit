@@ -542,7 +542,8 @@ def test_a_slot_deploy_job_reports_each_stage_to_the_console(app, world, monkeyp
     queued = DeploymentJobService.enqueue_app_deploy(row)
     job = db.session.get(DeploymentJob, queued['job_id'])
     steps = [s['name'] for s in job.get_plan()['steps']]
-    assert steps == ['Preflight', 'Build', 'Boot slot B', 'Health gate', 'Switch', 'Watch']
+    assert steps == ['Preflight', 'Build', 'Snapshot', 'Release', 'Boot slot B', 'Health gate',
+                     'Switch', 'Watch']
 
     from app.services.run_log_service import RunLogStream
     reached = []
@@ -557,8 +558,8 @@ def test_a_slot_deploy_job_reports_each_stage_to_the_console(app, world, monkeyp
     result = DeploymentJobService.run_job(job.id)
 
     assert result['success'], result
-    assert reached == [(1, 'Preflight'), (2, 'Build'), (3, 'Boot slot B'), (4, 'Health gate'),
-                       (5, 'Switch'), (6, 'Watch')]
+    assert reached == [(1, 'Preflight'), (2, 'Build'), (3, 'Snapshot'), (4, 'Release'),
+                       (5, 'Boot slot B'), (6, 'Health gate'), (7, 'Switch'), (8, 'Watch')]
 
 
 def test_an_in_place_deploy_job_keeps_its_three_steps(app, world, monkeypatch):
@@ -570,3 +571,161 @@ def test_an_in_place_deploy_job_keeps_its_three_steps(app, world, monkeypatch):
     job = db.session.get(DeploymentJob, queued['job_id'])
     assert [s['name'] for s in job.get_plan()['steps']] == [
         'Prepare deployment', 'Build application', 'Start containers']
+
+
+# ── §D: release command + DB snapshot ────────────────────────────────────────
+
+@pytest.fixture
+def release_world(world, monkeypatch, tmp_path):
+    """The world, plus a Procfile with a release line and a recording docker run."""
+    (tmp_path / 'Procfile').write_text('web: node server.js\nrelease: npm run migrate\n')
+    world.releases = []
+    world.release_fails = False
+
+    def run(cls, args, **kw):
+        if args[:2] == ['run', '--rm']:
+            world.releases.append((args[args.index('sh') - 1], args[-1]))
+            world.note('release')
+            if world.release_fails:
+                return {'success': False, 'error': 'exit status 1', 'output': 'migration 42 failed'}
+        return {'success': True, 'output': ''}
+
+    monkeypatch.setattr(DockerService, 'run', classmethod(run))
+    from app.services.service_connection_service import ServiceConnectionService
+    monkeypatch.setattr(ServiceConnectionService, 'needs_shared_network',
+                        classmethod(lambda cls, app: False))
+    world.root = tmp_path
+    return world
+
+
+def _order(world):
+    return [event.split(' ')[0] for event, _ in world.timeline]
+
+
+def test_the_release_command_runs_once_in_the_new_image_before_the_boot(app, release_world):
+    world = release_world
+    row = _live_app(world, root_path=str(world.root))
+    _enable(row)
+    result = DeploymentService.deploy(row.id)
+    assert result['success'], result
+    image = result['deployment']['image_tag']
+    assert world.releases == [(image, 'npm run migrate')]
+    order = _order(world)
+    assert order.index('release') < order.index('run'), 'release must run before the new slot boots'
+    assert Deployment.query.get(result['deployment']['id']).get_metadata()['release_ran'] is True
+    assert world.outage() == []
+
+
+def test_a_failed_release_aborts_with_the_live_slot_untouched(app, release_world):
+    world = release_world
+    world.release_fails = True
+    row = _live_app(world, root_path=str(world.root))
+    _enable(row)
+    result = DeploymentService.deploy(row.id)
+    assert result['success'] is False and result['still_serving'] is True
+    assert 'release command (Procfile) failed' in result['error']
+    assert world.ran == [] and row.active_slot == 'a' and world.outage() == []
+    assert 'app.deploy_aborted' in world.notified
+
+
+def test_a_rollback_never_reruns_the_release(app, release_world):
+    world = release_world
+    row = _live_app(world, root_path=str(world.root))
+    _enable(row)
+    assert DeploymentService.deploy(row.id)['success']
+    assert len(world.releases) == 1
+    assert SlotDeployService.switch_back(row)['success']
+    assert len(world.releases) == 1
+
+
+def test_stop_old_before_release_is_announced_downtime_that_heals_on_failure(app, release_world):
+    world = release_world
+    world.release_fails = True
+    row = _live_app(world, root_path=str(world.root))
+    _enable(row)
+    deploy_settings.update(row, {'stop_old_before_release': True})
+    db.session.commit()
+    result = DeploymentService.deploy(row.id)
+    assert result['success'] is False and result['still_serving'] is True
+    # Down during the release (the operator chose that), serving again after.
+    assert world.outage() == [f'stop serverkit-app-{row.id}', 'release']
+    assert world.timeline[-1][1] is True
+    assert world.containers[f'serverkit-app-{row.id}']['running'] is True
+
+
+def test_the_release_command_can_come_from_settings(app, release_world):
+    world = release_world
+    row = _live_app(world, root_path=str(world.root))
+    _enable(row)
+    deploy_settings.update(row, {'release_command': 'python manage.py migrate'})
+    db.session.commit()
+    assert DeploymentService.deploy(row.id)['success']
+    assert world.releases[0][1] == 'python manage.py migrate'
+
+
+def _owned_db(row):
+    from app.models.managed_database import ManagedDatabase
+    managed = ManagedDatabase(engine='postgresql', name='shopdb', host='localhost', port=5432,
+                              owner_application_id=row.id)
+    db.session.add(managed)
+    db.session.commit()
+    return managed
+
+
+def test_owned_databases_are_snapshotted_before_the_release(app, release_world, monkeypatch):
+    from app.services.backup_service import BackupService
+    world = release_world
+    dumped = []
+    monkeypatch.setattr(BackupService, 'backup_database', classmethod(
+        lambda cls, **kw: (dumped.append(kw['db_name']), world.note('dump'),
+                           {'success': True, 'path': '/backups/shopdb.sql.gz'})[2]))
+    row = _live_app(world, root_path=str(world.root))
+    _owned_db(row)
+    _enable(row)
+    result = DeploymentService.deploy(row.id)
+    assert result['success'], result
+    assert dumped == ['shopdb']
+    order = _order(world)
+    assert order.index('dump') < order.index('release')
+    snaps = Deployment.query.get(result['deployment']['id']).get_metadata()['db_snapshots']
+    assert snaps[0]['path'] == '/backups/shopdb.sql.gz'
+
+
+def test_a_failed_snapshot_warns_but_never_blocks(app, release_world, monkeypatch):
+    from app.services.backup_service import BackupService
+    world = release_world
+    monkeypatch.setattr(BackupService, 'backup_database', classmethod(
+        lambda cls, **kw: {'success': False, 'error': 'pg_dump: connection refused'}))
+    lines = []
+    row = _live_app(world, root_path=str(world.root))
+    _owned_db(row)
+    _enable(row)
+    result = DeploymentService.deploy(row.id, log_callback=lines.append)
+    assert result['success'], result
+    assert any('snapshot of shopdb failed' in line for line in lines)
+
+
+def test_after_a_switch_back_the_database_restore_is_offered_then_applied(
+        app, release_world, monkeypatch, client, auth_headers):
+    from app.services.backup_service import BackupService
+    world = release_world
+    monkeypatch.setattr(BackupService, 'backup_database', classmethod(
+        lambda cls, **kw: {'success': True, 'path': '/backups/shopdb.sql.gz'}))
+    restored = []
+    monkeypatch.setattr(BackupService, 'restore_database', classmethod(
+        lambda cls, path, db_type, db_name, **kw: restored.append((path, db_name)) or {'success': True}))
+    row = _live_app(world, root_path=str(world.root))
+    _owned_db(row)
+    _enable(row)
+    bad = DeploymentService.deploy(row.id)['deployment']
+    assert SlotDeployService.status(row)['restorable_db'] is None, 'nothing to undo while it serves'
+    assert SlotDeployService.switch_back(row)['success']
+
+    offer = SlotDeployService.status(row)['restorable_db']
+    assert offer['deployment_id'] == bad['id'] and offer['databases'] == ['shopdb']
+
+    resp = client.post(f'/api/v1/apps/{row.id}/slots/restore-db', headers=auth_headers,
+                       json={'deployment_id': bad['id']})
+    assert resp.status_code == 200, resp.get_json()
+    assert restored == [('/backups/shopdb.sql.gz', 'shopdb')]
+    assert SlotDeployService.status(row)['restorable_db'] is None

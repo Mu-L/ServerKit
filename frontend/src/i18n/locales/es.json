@@ -6812,7 +6812,14 @@
             "noStandby": "Todavía ninguna. El próximo despliegue arranca junto a la versión en vivo, y esta pasa a estar en espera.",
             "explain": "Un despliegue arranca la versión nueva junto a la que está en vivo, comprueba que responde y luego cambia el tráfico. Una versión que falla nunca reemplaza a la que funciona, y la anterior queda lista para volver atrás al instante.",
             "eligible": "Esta app cumple los requisitos.",
-            "turnOn": "Actívalo en Ajustes"
+            "turnOn": "Actívalo en Ajustes",
+            "restoreDb": "Restaurar la base de datos",
+            "restoreDbConfirm": "¿Restaurar {{databases}} a la copia tomada antes de que v{{version}} ejecutara su comando de publicación? Todo lo escrito en la base de datos desde entonces se pierde.",
+            "restoreDbConfirmButton": "Restaurar y perder lo escrito después",
+            "restoredDb": "Base de datos restaurada a antes de v{{version}}.",
+            "restoreDbFailed": "No se pudo restaurar la base de datos",
+            "restoreDbHint": "v{{version}} ejecutó su comando de publicación antes de volver atrás, así que la base de datos puede conservar sus cambios. El código volvió atrás; la base de datos no.",
+            "restoringDb": "Restaurando…"
         },
         "slotDeploysPanel": {
             "title": "Despliegues por ranuras",
@@ -6830,7 +6837,14 @@
             "standbyHint": "Mientras está lista, volver atrás tarda segundos. Después se detiene: deja de usar memoria, y volver atrás la arranca primero.",
             "volumes": "Dos copias pueden compartir los volúmenes",
             "volumesHint": "Durante unos segundos en cada cambio, las dos versiones montan los mismos volúmenes. Déjalo desactivado si la app guarda ahí algo como SQLite, que se rompe cuando dos procesos escriben a la vez.",
-            "schemaRule": "Las dos versiones usan la misma base de datos durante el cambio. Mantén los cambios de esquema compatibles durante un despliegue: primero añade, despliega y elimina después."
+            "schemaRule": "Las dos versiones usan la misma base de datos durante el cambio. Mantén los cambios de esquema compatibles durante un despliegue: primero añade, despliega y elimina después.",
+            "release": "Comando de publicación",
+            "releaseHint": "Se ejecuta una vez en un contenedor desechable de la versión nueva, antes de cambiar el tráfico; por ejemplo, migraciones de base de datos. Si falla, el despliegue se detiene y la versión en vivo no se toca. Vacío usa la línea release: del Procfile o de serverkit.yaml, si existe.",
+            "snapshot": "Copiar las bases de datos antes",
+            "snapshotHint": "Vuelca las bases de datos de esta app antes de ejecutar el comando de publicación, para poder deshacer una migración después de volver atrás.",
+            "stopOld": "Detener la versión en vivo antes del comando de publicación",
+            "stopOldHint": "Para cambios de esquema que la versión en marcha no soporta. El sitio queda caído desde el comando de publicación hasta que la versión nueva pasa su comprobación de salud; si algo falla, la versión anterior vuelve a arrancar.",
+            "releasePlaceholder": "npm run migrate"
         }
     },
     "auth": {

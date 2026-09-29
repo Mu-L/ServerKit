@@ -31,6 +31,9 @@ const SlotDeploysPanel = ({ app, onChanged }) => {
     const [watch, setWatch] = useState(String(settings.watch_seconds ?? WATCH_DEFAULT));
     const [standby, setStandby] = useState(String(settings.standby_warm_minutes ?? STANDBY_DEFAULT));
     const [volumesOk, setVolumesOk] = useState(!!settings.slot_volumes_confirmed);
+    const [releaseCommand, setReleaseCommand] = useState(settings.release_command || '');
+    const [snapshotDbs, setSnapshotDbs] = useState(settings.snapshot_databases ?? true);
+    const [stopOld, setStopOld] = useState(!!settings.stop_old_before_release);
 
     useEffect(() => {
         let cancelled = false;
@@ -44,7 +47,10 @@ const SlotDeploysPanel = ({ app, onChanged }) => {
     const standbyValue = intIn(standby, 0, STANDBY_MAX);
     const dirty = (watchValue !== null && watchValue !== (settings.watch_seconds ?? WATCH_DEFAULT))
         || (standbyValue !== null && standbyValue !== (settings.standby_warm_minutes ?? STANDBY_DEFAULT))
-        || volumesOk !== !!settings.slot_volumes_confirmed;
+        || volumesOk !== !!settings.slot_volumes_confirmed
+        || releaseCommand.trim() !== (settings.release_command || '')
+        || snapshotDbs !== (settings.snapshot_databases ?? true)
+        || stopOld !== !!settings.stop_old_before_release;
 
     async function handleToggle(next) {
         setToggling(true);
@@ -70,6 +76,9 @@ const SlotDeploysPanel = ({ app, onChanged }) => {
                     watch_seconds: watchValue,
                     standby_warm_minutes: standbyValue,
                     slot_volumes_confirmed: volumesOk,
+                    release_command: releaseCommand.trim() || null,
+                    snapshot_databases: snapshotDbs,
+                    stop_old_before_release: stopOld,
                 },
             });
             toast.success(t('app.slotDeploysPanel.saved', 'Rollout settings saved.'));
@@ -159,6 +168,47 @@ const SlotDeploysPanel = ({ app, onChanged }) => {
                         </div>
                     </div>
                 )}
+
+                <div className="settings-row">
+                    <div className="settings-label">
+                        <label htmlFor={`slot-release-${app.id}`}>
+                            {t('app.slotDeploysPanel.release', 'Release command')}
+                        </label>
+                        <span className="settings-hint">
+                            {t('app.slotDeploysPanel.releaseHint', 'Runs once in a throwaway container of the new release, before traffic switches, for example database migrations. If it fails the deploy stops and the live release is untouched. Empty uses the release: line of the Procfile or serverkit.yaml, if there is one.')}
+                        </span>
+                    </div>
+                    <div className="settings-control">
+                        <Input id={`slot-release-${app.id}`} placeholder={t('app.slotDeploysPanel.releasePlaceholder', 'npm run migrate')}
+                            value={releaseCommand} onChange={(e) => setReleaseCommand(e.target.value)} disabled={saving} />
+                    </div>
+                </div>
+
+                <div className="settings-row">
+                    <div className="settings-label">
+                        <span>{t('app.slotDeploysPanel.snapshot', 'Snapshot the databases first')}</span>
+                        <span className="settings-hint">
+                            {t('app.slotDeploysPanel.snapshotHint', 'Dumps the databases this app owns before the release command runs, so a migration can be undone after a switch back.')}
+                        </span>
+                    </div>
+                    <div className="settings-control">
+                        <Switch checked={snapshotDbs} onCheckedChange={setSnapshotDbs} disabled={saving}
+                            aria-label={t('app.slotDeploysPanel.snapshot', 'Snapshot the databases first')} />
+                    </div>
+                </div>
+
+                <div className="settings-row">
+                    <div className="settings-label">
+                        <span>{t('app.slotDeploysPanel.stopOld', 'Stop the live release before the release command')}</span>
+                        <span className="settings-hint">
+                            {t('app.slotDeploysPanel.stopOldHint', 'For schema changes the running release cannot survive. The site is down from the release command until the new release passes its health check; a failure starts the old release again.')}
+                        </span>
+                    </div>
+                    <div className="settings-control">
+                        <Switch checked={stopOld} onCheckedChange={setStopOld} disabled={saving}
+                            aria-label={t('app.slotDeploysPanel.stopOld', 'Stop the live release before the release command')} />
+                    </div>
+                </div>
 
                 <div className="settings-row">
                     <div className="settings-label" />

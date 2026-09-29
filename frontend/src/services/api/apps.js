@@ -588,3 +588,9 @@ export async function setAppSlots(appId, enabled) {
 export async function switchBackAppSlot(appId) {
     return this.request(`/apps/${appId}/slots/switch-back`, { method: 'POST' });
 }
+
+export async function restoreAppSlotDatabase(appId, deploymentId) {
+    return this.request(`/apps/${appId}/slots/restore-db`, {
+        method: 'POST', body: { deployment_id: deploymentId },
+    });
+}

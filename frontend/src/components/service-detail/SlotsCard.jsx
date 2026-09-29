@@ -27,6 +27,7 @@ export default function SlotsCard({ app }) {
     const { confirm } = useConfirm();
     const [state, setState] = useState(null);
     const [switching, setSwitching] = useState(false);
+    const [restoring, setRestoring] = useState(false);
 
     const load = useCallback(() => {
         let cancelled = false;
@@ -61,6 +62,30 @@ export default function SlotsCard({ app }) {
             toast.error(err.message || t('app.slots.switchBackFailed', 'Switching back failed'));
         } finally {
             setSwitching(false);
+        }
+    }
+
+    // Rolling code back never rolls the database back. This is the explicit
+    // second step, with the data-loss warning where the choice is made.
+    async function handleRestoreDb() {
+        const offer = state.restorable_db;
+        if (!await confirm({
+            title: t('app.slots.restoreDb', 'Restore the database'),
+            message: t('app.slots.restoreDbConfirm', 'Restore {{databases}} to the snapshot taken before v{{version}} ran its release command? Everything written to the database since then is lost.', {
+                databases: offer.databases.join(', '), version: offer.version,
+            }),
+            confirmText: t('app.slots.restoreDbConfirmButton', 'Restore and lose later writes'),
+            variant: 'danger',
+        })) return;
+        setRestoring(true);
+        try {
+            await api.restoreAppSlotDatabase(app.id, offer.deployment_id);
+            toast.success(t('app.slots.restoredDb', 'Database restored to before v{{version}}.', { version: offer.version }));
+            load();
+        } catch (err) {
+            toast.error(err.message || t('app.slots.restoreDbFailed', 'Restoring the database failed'));
+        } finally {
+            setRestoring(false);
         }
     }
 
@@ -132,6 +157,17 @@ export default function SlotsCard({ app }) {
                             {state.eligibility.reasons.map((reason) => <li key={reason}>{reason}</li>)}
                         </ul>
                     )}
+                </div>
+            )}
+
+            {state.enabled && state.restorable_db && (
+                <div className="slots-card__restore">
+                    <p className="slots-card__hint">
+                        {t('app.slots.restoreDbHint', 'v{{version}} ran its release command before it was switched away from, so the database may still have its changes. The code went back; the database did not.', { version: state.restorable_db.version })}
+                    </p>
+                    <Button variant="outline" size="sm" onClick={handleRestoreDb} disabled={restoring}>
+                        {restoring ? t('app.slots.restoringDb', 'Restoring…') : t('app.slots.restoreDb', 'Restore the database')}
+                    </Button>
                 </div>
             )}
 
