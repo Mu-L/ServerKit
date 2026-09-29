@@ -180,7 +180,9 @@ This document outlines the development roadmap for ServerKit. Features are organ
 - [x] Rollback to previous deployments
 - [x] Deployment history and logs
 - [x] Pre/post deployment scripts
-- [x] Zero-downtime deployments
+- [x] Zero-downtime deployments: opt-in A/B slots boot the new release beside the live one, gate it on its health check, switch nginx over, and switch back on their own if it fails
+- [x] Release commands and pre-deploy database snapshots run once, before the switch
+- [x] Immutable image per deployment, so a rollback runs the image that actually ran
 
 ---
 
