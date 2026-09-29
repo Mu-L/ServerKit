@@ -17,6 +17,7 @@ import {
     CircleX,
     Sparkles,
     Zap,
+    HeartPulse,
 } from 'lucide-react';
 import api from '../../services/api';
 import { useToast } from '../../contexts/useToast.js';
@@ -28,6 +29,7 @@ import ContainerOpsPanel from '../apps/ContainerOpsPanel';
 import VolumesPanel from '../apps/VolumesPanel';
 import ResourceLimitsPanel from '../apps/ResourceLimitsPanel';
 import MicroCachePanel from '../apps/MicroCachePanel';
+import DeploySafetyPanel from '../apps/DeploySafetyPanel';
 import AppWafPanel from '../apps/AppWafPanel';
 import BuildTab from '../appdetail/BuildTab';
 import DeployTab from '../appdetail/DeployTab';
@@ -75,6 +77,7 @@ function buildSettingsGroups(app) {
             items: [
                 { id: 'git', labelKey: 'app.settingsTab.gitDeploy', label: 'Git & Deploy', icon: GitBranch },
                 { id: 'build', labelKey: 'app.settingsTab.build', label: 'Build', icon: Hammer },
+                ...(isDocker ? [{ id: 'health', labelKey: 'app.settingsTab.healthRollout', label: 'Health & Rollout', icon: HeartPulse }] : []),
                 { id: 'manifest', labelKey: 'app.settingsTab.manifest', label: 'Manifest', icon: Zap },
             ],
         },
@@ -344,6 +347,15 @@ const SettingsTab = ({ app, deployConfig, domains, primaryDomain, onUpdate }) =>
                     <div className="svc-settings__section">
                         <h3 className="svc-settings__section-title">{t('app.settingsTab.cache', 'Cache')}</h3>
                         <MicroCachePanel app={app} onChanged={onUpdate} />
+                    </div>
+                )}
+
+                {/* Health & Rollout (Docker only) — the deploy health gate
+                    (plan 87): where a new release is asked, and for how long. */}
+                {section === 'health' && (
+                    <div className="svc-settings__section">
+                        <h3 className="svc-settings__section-title">{t('app.settingsTab.healthRollout', 'Health & Rollout')}</h3>
+                        <DeploySafetyPanel app={app} onChanged={onUpdate} />
                     </div>
                 )}
 

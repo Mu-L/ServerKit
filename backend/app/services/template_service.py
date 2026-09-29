@@ -29,6 +29,7 @@ import requests
 
 from app import paths
 from app.utils.system import run_checked
+from app.services.deploy_lock import with_deploy_lock
 
 
 class TemplateService:
@@ -2248,6 +2249,7 @@ class TemplateService:
         }
 
     @classmethod
+    @with_deploy_lock('template update')
     def update_app(cls, app_id: int, user_id: int = None,
                    log_callback: Callable[[str], None] = None) -> Dict:
         """Update an installed app to the latest template version.
@@ -2386,10 +2388,18 @@ class TemplateService:
             compose_result = DockerService.compose_up(app_path, detach=True, build=True)
 
             if not compose_result.get('success'):
-                # Rollback
+                # Rollback — and say whether it worked: an unchecked `up` here
+                # reported a plain failure while the app sat stopped (§A6).
                 if os.path.exists(backup_path):
                     shutil.copy(backup_path, compose_path)
-                    DockerService.compose_up(app_path, detach=True)
+                    restored = DockerService.compose_up(app_path, detach=True)
+                    compose_result = dict(compose_result)
+                    compose_result['restored'] = bool(restored.get('success'))
+                    if not restored.get('success'):
+                        compose_result['error'] = (
+                            f"{compose_result.get('error') or 'docker compose up failed'}; "
+                            f"restoring the previous version also failed: "
+                            f"{restored.get('error') or 'unknown error'} — the app is down")
                 return compose_result
 
             # Run post-update script

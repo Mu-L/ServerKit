@@ -10,6 +10,9 @@ from typing import Dict, Optional
 
 from app.utils.system import run_checked
 from app.utils.git_security import git_argv, git_env, validate_ref_name
+from app.services import health_gate
+from app.services.health_gate import HealthGateError
+from app.services.deploy_lock import with_deploy_lock
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +21,7 @@ class GitDeployService:
     """Service for managing git-based deployments."""
 
     @classmethod
+    @with_deploy_lock('webhook deploy')
     def deploy(cls, app_id: int, webhook_id: int = None, commit_sha: str = None,
                commit_message: str = None, branch: str = None,
                triggered_by: str = 'webhook') -> Dict:
@@ -102,6 +106,12 @@ class GitDeployService:
 
             if not pull_result.get('success'):
                 raise Exception(f"Git pull failed: {pull_result.get('error')}")
+            if not deployment.commit_sha:
+                # A manual deploy names no commit: record what the pull
+                # checked out, never what was live before it (plan 87 §A2).
+                head = run_checked(['git', 'rev-parse', 'HEAD'], cwd=app.root_path, timeout=10)
+                if head['success']:
+                    deployment.commit_sha = head['output'].strip()[:40] or None
 
             # Step 3: Restart application
             logs.append("\n=== Restarting application ===")
@@ -164,6 +174,7 @@ class GitDeployService:
             }
 
     @classmethod
+    @with_deploy_lock('rollback')
     def rollback(cls, app_id: int, target_version: int = None) -> Dict:
         """
         Rollback to a previous deployment version.
@@ -453,17 +464,24 @@ class GitDeployService:
             up_result = run_checked(
                 ['docker', 'compose', 'up', '-d', '--no-deps', '--scale', 'web=2'],
                 cwd=app.root_path, timeout=120)
+            if not up_result['success']:
+                return {'success': False, 'error': up_result['error'],
+                        'output': '\n'.join(output)}
 
-            # Wait for the new container to be healthy. When a health-check path
-            # is declared, poll it instead of a blind fixed wait (plan 17 #4).
-            output.append(cls._wait_for_health(app))
+            # The new container must pass the health gate. A failure used to be
+            # logged and the rollout "succeeded" anyway (plan 87 §A3).
+            try:
+                output.append(cls._wait_for_health(app))
+            except HealthGateError as exc:
+                output.append(str(exc))
+                return {'success': False, 'error': str(exc), 'output': '\n'.join(output)}
+            finally:
+                # Scale back down either way: one live copy per app.
+                run_checked(
+                    ['docker', 'compose', 'up', '-d', '--no-deps', '--scale', 'web=1'],
+                    cwd=app.root_path, timeout=60)
 
-            # Scale back down
-            scale_result = run_checked(
-                ['docker', 'compose', 'up', '-d', '--no-deps', '--scale', 'web=1'],
-                cwd=app.root_path, timeout=60)
-
-            output.append(f"Rolling update completed")
+            output.append("Rolling update completed")
 
             return {
                 'success': True,
@@ -476,41 +494,21 @@ class GitDeployService:
             return {'success': False, 'error': str(e), 'output': '\n'.join(output)}
 
     @classmethod
-    def _wait_for_health(cls, app, timeout: int = 30, fallback: int = 5) -> str:
-        """Block until the app answers its health-check path, or time out.
+    def _wait_for_health(cls, app, fallback: int = 5, **overrides) -> str:
+        """Block until the app passes the health gate; raise if it never does.
 
-        Falls back to a fixed wait when no path/port is declared, preserving the
-        previous behavior. Best-effort — never raises.
+        Probes ``healthcheck_path`` (default ``/``) on the app's port with the
+        app's gate settings: 2xx/3xx only (4xx only when allowed), several in
+        a row. An app with no port cannot be probed and keeps the old fixed
+        wait. Raises :class:`HealthGateError` on failure (plan 87 §A3).
         """
         import time
 
-        path = getattr(app, 'healthcheck_path', None)
-        port = getattr(app, 'port', None)
-        if not path or not port:
+        if not getattr(app, 'port', None):
             time.sleep(fallback)
-            return f"Waited {fallback}s (no health check configured)"
-
-        import urllib.request
-        import urllib.error
-
-        url = f"http://127.0.0.1:{port}{path if path.startswith('/') else '/' + path}"
-        deadline = time.time() + timeout
-        last = None
-        while time.time() < deadline:
-            try:
-                with urllib.request.urlopen(url, timeout=3) as resp:
-                    if 200 <= resp.status < 400:
-                        return f"Health check passed ({url} -> {resp.status})"
-                    last = f"status {resp.status}"
-            except urllib.error.HTTPError as exc:
-                if 200 <= exc.code < 500:
-                    # a 4xx still means the app is up and routing
-                    return f"Health check reachable ({url} -> {exc.code})"
-                last = f"HTTP {exc.code}"
-            except Exception as exc:  # not up yet
-                last = str(exc)
-            time.sleep(1)
-        return f"Health check did not pass within {timeout}s ({url}; last: {last})"
+            return f"Waited {fallback}s (no port to health-check)"
+        result = health_gate.gate_for_app(app, **overrides)
+        return f"Health check passed ({result['url']} -> {result['status']})"
 
     @classmethod
     def _run_script(cls, script: str, cwd: str) -> Dict:

@@ -141,11 +141,18 @@ class Deployment(JsonColumnMixin, db.Model):
 
     @classmethod
     def get_previous(cls, app_id, before_version):
-        """Get previous successful deployment before a version."""
+        """Get previous successful deployment before a version.
+
+        A deploy marks the release it replaces ``rolled_back``, so "was live
+        once" is live-or-rolled_back with a completed deploy. Matching only
+        ``live`` found nothing for any app deployed twice: rollback without a
+        version always failed and no diff was ever generated (plan 87 §A6).
+        """
         return cls.query.filter(
             cls.app_id == app_id,
             cls.version < before_version,
-            cls.status == 'live'
+            cls.status.in_(('live', 'rolled_back')),
+            cls.deploy_completed_at.isnot(None),
         ).order_by(cls.version.desc()).first()
 
     @classmethod

@@ -1713,6 +1713,18 @@
         "deployPill": {
             "openTheDeployConsole": "Open the Deploy Console"
         },
+        "deploySafetyPanel": {
+            "allow4xx": "Accept a 4xx answer",
+            "allow4xxHint": "Only for a health path that sits behind a login and answers 401 or 403 when the app is up. Otherwise a 4xx means the release is broken.",
+            "healthCheck": "Health check",
+            "intro": "Before a new release counts as live, ServerKit asks it for this path and waits for a 2xx or 3xx answer three times in a row. A release that never answers fails the deploy.",
+            "path": "Health check path",
+            "pathHint": "Leave empty to use /. Point it at a page that answers without a login.",
+            "saveFailed": "Failed to save health check settings",
+            "saved": "Health check settings saved.",
+            "timeout": "Timeout (seconds)",
+            "timeoutHint": "How long a new release may take to start answering ({{min}}–{{max}})."
+        },
         "deployTab": {
             "anImmutableConfigCheckpointEnvKeys": "An immutable config checkpoint (env keys, domains, image, build method, volumes) is captured before each deployment. Secret values are masked. Open a checkpoint to diff it against the previous one or restore it.",
             "autoDeploy": "Auto Deploy",
@@ -5362,6 +5374,7 @@
             "general": "General",
             "gitDeploy": "Git & Deploy",
             "giveItASubdomain": "Give it a subdomain",
+            "healthRollout": "Health & Rollout",
             "issuer": "Issuer",
             "learnAboutServerkitYaml": "Learn about serverkit.yaml",
             "linkARepoSoServerkitCan": "Link a repo so ServerKit can pull your code and redeploy on every push.",

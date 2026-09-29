@@ -1303,6 +1303,12 @@ def update_app(app_id):
     if 'healthcheck_path' in data:
         hc = (data['healthcheck_path'] or '').strip()
         app.healthcheck_path = hc or None
+    if 'deploy_settings' in data:
+        from app.services import deploy_settings
+        _, error = deploy_settings.update(app, data['deploy_settings'])
+        if error:
+            db.session.rollback()
+            return jsonify({'error': error}), 400
     if 'root_path' in data:
         app.root_path = data['root_path']
     if 'docker_image' in data:

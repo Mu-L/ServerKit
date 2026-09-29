@@ -106,13 +106,17 @@ def test_health_wait_falls_back_without_path(app):
     a.healthcheck_path = None
     a.port = None
     msg = GitDeployService._wait_for_health(a, timeout=1, fallback=0)
-    assert 'no health check' in msg
+    assert 'no port to health-check' in msg
 
 
 def test_health_wait_times_out_when_unreachable(app):
+    # Plan 87 §A3: the wait is a gate now — it raises instead of returning a
+    # "did not pass" line the deploy then ignored.
+    import pytest
     from app.models import Application
+    from app.services.health_gate import HealthGateError
     a = Application(name='x', app_type='docker', user_id=1)
     a.healthcheck_path = '/health'
     a.port = 1  # nothing listening
-    msg = GitDeployService._wait_for_health(a, timeout=1)
-    assert 'did not pass' in msg
+    with pytest.raises(HealthGateError, match='did not pass'):
+        GitDeployService._wait_for_health(a, timeout=1)

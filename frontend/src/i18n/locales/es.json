@@ -5093,7 +5093,8 @@
             "unlinkFromItsLinkedApplication": "¿Desvincular {{name}} de su aplicación vinculada?",
             "unlinkingWillResetBothAppsTo": "Al desvincularlas, ambas apps volverán al modo independiente.",
             "usedForCertificateExpiryRemindersFrom": "Se usa para los recordatorios de vencimiento de certificados de Let's Encrypt.",
-            "whichRegisteredBaseDomainToPublish": "Bajo qué dominio base registrado se publicará este servicio."
+            "whichRegisteredBaseDomainToPublish": "Bajo qué dominio base registrado se publicará este servicio.",
+            "healthRollout": "Salud y despliegue"
         },
         "setupHealthWidget": {
             "allSet": "Todo listo —",
@@ -6782,6 +6783,18 @@
             "crashLoopFailure": "Una política de reinicio oculta un fallo: la app parece en marcha entre fallos.",
             "crashLoopSignal": "{{count}} reinicios en los últimos 10 minutos.",
             "openLogs": "Abrir registros"
+        },
+        "deploySafetyPanel": {
+            "allow4xx": "Aceptar una respuesta 4xx",
+            "allow4xxHint": "Solo para una ruta de salud que está detrás de un inicio de sesión y responde 401 o 403 cuando la app funciona. En otro caso, un 4xx significa que la versión está rota.",
+            "healthCheck": "Comprobación de salud",
+            "intro": "Antes de que una versión nueva se considere activa, ServerKit le pide esta ruta y espera una respuesta 2xx o 3xx tres veces seguidas. Una versión que nunca responde hace fallar el despliegue.",
+            "path": "Ruta de comprobación de salud",
+            "pathHint": "Déjala vacía para usar /. Apúntala a una página que responda sin iniciar sesión.",
+            "saveFailed": "No se pudo guardar la comprobación de salud",
+            "saved": "Comprobación de salud guardada.",
+            "timeout": "Tiempo límite (segundos)",
+            "timeoutHint": "Cuánto puede tardar una versión nueva en empezar a responder ({{min}}–{{max}})."
         }
     },
     "auth": {

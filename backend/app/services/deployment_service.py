@@ -92,9 +92,23 @@ class DeploymentService:
               log_callback: Callable[[str], None] = None) -> Dict:
         """Execute a full deployment (build + deploy).
 
-        This is the main entry point for deployments.
+        This is the main entry point for deployments. It holds the app's deploy
+        lock for the whole run, so a second deploy of the same app waits for
+        this one instead of racing it (plan 87 §A5).
         """
-        # Create deployment record
+        from app.services.deploy_lock import deploy_lock, DeployLockTimeout
+        try:
+            with deploy_lock(app_id, 'deploy', log=log_callback):
+                return cls._deploy_locked(app_id, user_id, no_cache, trigger,
+                                          version_tag, log_callback)
+        except DeployLockTimeout as exc:
+            return {'success': False, 'error': str(exc)}
+
+    @classmethod
+    def _deploy_locked(cls, app_id, user_id, no_cache, trigger, version_tag,
+                       log_callback) -> Dict:
+        # Create deployment record (inside the lock: the version number is
+        # read-then-written, so two unlocked deploys could both claim vN).
         result = cls.create_deployment(app_id, user_id, trigger, version_tag)
         if not result.get('success'):
             return result
@@ -126,6 +140,9 @@ class DeploymentService:
                 pull_result = cls._pull_latest(app, log_callback)
                 if not pull_result.get('success'):
                     return cls._fail(app, deployment, pull_result.get('error') or 'Git pull failed')
+                # create_deployment read HEAD before this pull, so the row named
+                # the commit that was live, not the one being deployed (§A2).
+                cls._record_commit(app, deployment)
 
             if cls._uses_compose(app):
                 # The whole compose project: build, validate and pull while
@@ -146,10 +163,14 @@ class DeploymentService:
                 if log_callback:
                     log_callback(f"Starting build for {app.name}...")
 
+                # An immutable tag per deployment: a rollback then redeploys
+                # the image that actually ran, not whatever :latest became (§A1).
+                from app.services.app_image_retention import deploy_image_tag
                 build_result = BuildService.build(
                     app_id,
                     no_cache=no_cache,
-                    log_callback=log_callback
+                    log_callback=log_callback,
+                    image_tag=deploy_image_tag(app_id, deployment.id),
                 )
 
                 deployment.build_completed_at = datetime.utcnow()
@@ -215,6 +236,13 @@ class DeploymentService:
                 keep_count = build_config.get('keep_deployments', 5)
                 Deployment.cleanup_old_deployments(app_id, keep_count)
 
+            # One image per deploy is a disk leak unless something prunes it
+            # (plan 85). Keeps the newest few for rollback.
+            if deployment.image_tag:
+                from app.services import app_image_retention, deploy_settings
+                app_image_retention.prune(app_id, keep=deploy_settings.get(app, 'keep_images'),
+                                          protect=cls._protected_images(app))
+
             if log_callback:
                 log_callback(f"Deployment successful! Version {deployment.version} is now live.")
 
@@ -256,6 +284,22 @@ class DeploymentService:
         app.status = 'error'
         db.session.commit()
         return {'success': False, 'error': error, 'deployment': deployment.to_dict()}
+
+    @staticmethod
+    def _record_commit(app: Application, deployment: Deployment) -> None:
+        """Stamp the deployment with the commit now checked out (after a pull)."""
+        if not app.root_path:
+            return
+        info = GitService.get_commit_info(app.root_path)
+        if info and info.get('hash'):
+            deployment.commit_hash = info.get('hash')
+            deployment.commit_message = info.get('message')
+            db.session.commit()
+
+    @staticmethod
+    def _protected_images(app: Application) -> set:
+        """Image refs a slot still points at (never pruned)."""
+        return set()
 
     @staticmethod
     def _uses_compose(app: Application) -> bool:
@@ -427,6 +471,7 @@ class DeploymentService:
 
             if not pull_result.get('success'):
                 return pull_result
+            cls._record_commit(app, deployment)
 
             # Run post-deploy scripts
             if deploy_config.get('post_deploy_script'):
@@ -462,6 +507,15 @@ class DeploymentService:
 
         If target_version is not specified, rolls back to the previous successful deployment.
         """
+        from app.services.deploy_lock import deploy_lock, DeployLockTimeout
+        try:
+            with deploy_lock(app_id, 'rollback', log=log_callback):
+                return cls._rollback_locked(app_id, target_version, user_id, log_callback)
+        except DeployLockTimeout as exc:
+            return {'success': False, 'error': str(exc)}
+
+    @classmethod
+    def _rollback_locked(cls, app_id, target_version, user_id, log_callback) -> Dict:
         # query_active: a rollback re-deploys code and restarts the app.
         app = Application.query_active().filter_by(id=app_id).first()
         if not app:
@@ -603,6 +657,25 @@ class DeploymentService:
 
                 if not script_result.get('success'):
                     return script_result
+
+            # A compose app's code lives in its images: checking out the old
+            # commit changed files and nothing else, so the "rollback"
+            # reported success while the new release kept serving (§A6).
+            # Rebuild and recreate from the checked-out tree, validated first.
+            if cls._uses_compose(app):
+                from app.services import deploy_preflight_service as preflight
+                checks = preflight.preflight_compose_project(
+                    app.root_path, app.compose_file, log=log_callback)
+                if not checks.ok:
+                    return {'success': False, 'error': checks.error,
+                            'preflight': checks.to_dict()}
+                if log_callback:
+                    log_callback(f"Starting compose project {app.compose_file}...")
+                up = DockerService.compose_up(app.root_path, detach=True, build=True,
+                                              compose_file=app.compose_file)
+                if not up.get('success'):
+                    return {'success': False,
+                            'error': up.get('error') or 'docker compose up failed'}
 
             # Restart service
             if app.app_type in ['flask', 'django']:
