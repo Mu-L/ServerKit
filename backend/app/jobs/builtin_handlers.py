@@ -406,6 +406,13 @@ def run_request_metrics():
     return RequestMetricsService.sample()
 
 
+def run_slot_standby_sweep():
+    """Stop warm standby slots whose time is up (plan 87 §B). Stopped, not
+    removed: a switch back to one is a start + health gate away."""
+    from app.services.slot_deploy_service import SlotDeployService
+    return SlotDeployService.sweep_standby() or None
+
+
 def run_crash_loop_check():
     """Count container restarts and open/resolve crash-loop incidents
     (plan 86 §E1). A builtin tick: successes keep the 24 h tick retention."""
@@ -597,6 +604,7 @@ _BUILTINS = [
     ('builtin.disk_alert',          run_disk_alert,            'disk-alert',         900,   240),
     ('builtin.request_metrics',     run_request_metrics,       'request-metrics',    60,    90),
     ('builtin.crash_loop',          run_crash_loop_check,      'crash-loop',         60,    120),
+    ('builtin.slot_standby',        run_slot_standby_sweep,    'slot-standby',       60,    150),
     # Fleet alert thresholds. Configurable since the Fleet page shipped, and
     # never evaluated until this row existed.
     ('builtin.fleet_thresholds',    run_fleet_threshold_checks, 'fleet-thresholds', FLEET_THRESHOLD_INTERVAL, 45),

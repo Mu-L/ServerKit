@@ -1112,6 +1112,11 @@ class TemplateService:
             for app in apps:
                 if app.port:
                     used_ports.add(app.port)
+            # A slot app holds two ports (plan 87): the live one is app.port,
+            # the standby's stays reserved for the switch back.
+            from app.models.app_slot import AppSlot
+            used_ports.update(row.host_port for row in
+                              AppSlot.query.filter(AppSlot.host_port.isnot(None)).all())
         except Exception:
             pass
         return used_ports

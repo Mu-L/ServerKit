@@ -81,6 +81,26 @@ _CATALOG = {
         'severity': 'success',
         'category': 'apps',
     },
+    # Slot deploys (plan 87): a release that never went live, one that was
+    # switched back automatically, and a switch back that did not work.
+    'app.deploy_aborted': {
+        'title': 'Deploy stopped, site unchanged: {app}',
+        'template': 'generic',
+        'severity': 'warning',
+        'category': 'apps',
+    },
+    'app.deploy_reverted': {
+        'title': 'Deploy switched back automatically: {app}',
+        'template': 'generic',
+        'severity': 'warning',
+        'category': 'apps',
+    },
+    'app.deploy_revert_failed': {
+        'title': 'Deploy failed and switching back failed: {app}',
+        'template': 'generic',
+        'severity': 'critical',
+        'category': 'apps',
+    },
     'system.alert': {
         'title': 'System alert on {hostname}',
         'template': 'generic',
@@ -216,6 +236,9 @@ _LINKS = {
     'security.alert': '/security',
     # apps / deploys
     'app.deployed': '/services',
+    'app.deploy_aborted': '/services',
+    'app.deploy_reverted': '/services',
+    'app.deploy_revert_failed': '/services',
     # system / monitoring
     'system.alert': '/monitoring',
     'monitoring.alert': '/monitoring',

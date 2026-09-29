@@ -15,6 +15,12 @@ DEFAULTS = {
     'healthcheck_consecutive': 3,
     # How many deployments' images stay on disk for rollback (§A1).
     'keep_images': 3,
+    # Slot deploys (§B): how long to watch a release after the switch, how
+    # long the old slot stays warm, and the operator's word that two copies
+    # sharing the app's volumes for a moment is safe.
+    'watch_seconds': 60,
+    'standby_warm_minutes': 10,
+    'slot_volumes_confirmed': False,
 }
 
 # key -> (type, min, max). Anything outside is rejected, not clamped: a typo'd
@@ -24,6 +30,9 @@ _RULES = {
     'healthcheck_allow_4xx': (bool, None, None),
     'healthcheck_consecutive': (int, 1, 20),
     'keep_images': (int, 1, 20),
+    'watch_seconds': (int, 0, 900),
+    'standby_warm_minutes': (int, 0, 1440),
+    'slot_volumes_confirmed': (bool, None, None),
 }
 
 

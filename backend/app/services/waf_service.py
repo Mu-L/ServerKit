@@ -404,6 +404,21 @@ class WafService:
         return cls._write_file(vhost_path, new_content)
 
     @classmethod
+    def reapply_if_enforcing(cls, application_id: int) -> Optional[Dict]:
+        """Re-wire the WAF include after something regenerated the vhost.
+
+        ``write_app_vhost`` renders from the template, which has no WAF
+        include; drift repair and a slot switch both rewrite the vhost, and
+        neither may strip protection the DB still records (plan 82 §F.1,
+        plan 87 §B). None when the app has no enforcing policy.
+        """
+        from app.models.waf_policy import WafPolicy
+        policy = WafPolicy.query.filter_by(application_id=application_id).first()
+        if policy is None or policy.mode not in ('block', 'detect'):
+            return None
+        return cls.apply(application_id)
+
+    @classmethod
     def apply(cls, application_id: int) -> Dict:
         """Render + persist the WAF artifacts for an app and reload nginx.
 

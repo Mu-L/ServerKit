@@ -57,6 +57,9 @@ class Application(JsonColumnMixin, TimestampMixin, SoftDeleteMixin, db.Model):
     # JSON: health-gate timeout / 4xx rule and the other deploy knobs
     # (plan 87). NULL = defaults; read through app.services.deploy_settings.
     deploy_settings = db.Column(db.Text, nullable=True)
+    # A/B slot deploys (plan 87 §B): opt-in, and which slot is live.
+    slot_deploys_enabled = db.Column(db.Boolean, nullable=False, server_default='0', default=False)
+    active_slot = db.Column(db.String(1), nullable=True)
 
     # Docker specific
     docker_image = db.Column(db.String(200), nullable=True)
@@ -222,6 +225,8 @@ class Application(JsonColumnMixin, TimestampMixin, SoftDeleteMixin, db.Model):
             'port': self.port,
             'healthcheck_path': self.healthcheck_path,
             'deploy_settings': self._deploy_settings(),
+            'slot_deploys_enabled': bool(self.slot_deploys_enabled),
+            'active_slot': self.active_slot,
             'root_path': self.root_path,
             'docker_image': self.docker_image,
             'container_id': self.container_id,

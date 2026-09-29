@@ -201,7 +201,9 @@ class DeploymentService:
                 deploy_result = cls._deploy_application(app, deployment, log_callback)
 
                 if not deploy_result.get('success'):
-                    return cls._fail(app, deployment, deploy_result.get('error', 'Deploy failed'))
+                    return cls._fail(app, deployment, deploy_result.get('error', 'Deploy failed'),
+                                     status=deploy_result.get('deployment_status', 'failed'),
+                                     still_serving=bool(deploy_result.get('still_serving')))
 
             # Mark previous live deployment as rolled_back
             current = Deployment.get_current(app_id)
@@ -278,12 +280,17 @@ class DeploymentService:
             }
 
     @classmethod
-    def _fail(cls, app: Application, deployment: Deployment, error: str) -> Dict:
-        deployment.status = 'failed'
+    def _fail(cls, app: Application, deployment: Deployment, error: str,
+              status: str = 'failed', still_serving: bool = False) -> Dict:
+        deployment.status = status
         deployment.error_message = error
-        app.status = 'error'
+        # A slot deploy that aborted before (or reverted after) the switch
+        # left the previous release serving: the app is fine, the deploy
+        # is not. Only a deploy that took the site down marks the app.
+        app.status = 'running' if still_serving else 'error'
         db.session.commit()
-        return {'success': False, 'error': error, 'deployment': deployment.to_dict()}
+        return {'success': False, 'error': error, 'still_serving': still_serving,
+                'deployment': deployment.to_dict()}
 
     @staticmethod
     def _record_commit(app: Application, deployment: Deployment) -> None:
@@ -299,7 +306,8 @@ class DeploymentService:
     @staticmethod
     def _protected_images(app: Application) -> set:
         """Image refs a slot still points at (never pruned)."""
-        return set()
+        from app.services.slot_deploy_service import SlotDeployService
+        return SlotDeployService.protected_images(app)
 
     @staticmethod
     def _uses_compose(app: Application) -> bool:
@@ -404,8 +412,35 @@ class DeploymentService:
 
         checks = preflight.preflight_image(image_tag, pull=pull_fn, log=log_callback)
         if not checks.ok:
-            return {'success': False, 'error': checks.error,
+            return {'success': False, 'error': checks.error, 'still_serving': True,
                     'preflight': checks.to_dict()}
+
+        # Attach any managed volumes so app data persists across redeploys
+        # (each returns a `name:/mount[:ro]` spec for `docker run -v`).
+        from app.services.volume_service import VolumeService
+        volumes = VolumeService.run_args(app)
+
+        from app.services.slot_deploy_service import SlotDeployService
+        if app.slot_deploys_enabled:
+            # A/B slots (plan 87 §B): boot beside the live release, gate,
+            # switch, watch. Eligibility is re-checked on every deploy; an app
+            # that stopped qualifying fails here rather than silently taking
+            # the downtime of an in-place deploy.
+            verdict = SlotDeployService.eligibility(app)
+            if not verdict['eligible']:
+                return {'success': False, 'still_serving': True,
+                        'error': 'Slot deploys are on but this app no longer qualifies: '
+                                 + ' '.join(verdict['reasons'])
+                                 + ' Turn slot deploys off to deploy in place.'}
+            return SlotDeployService.deploy_container(app, deployment, image_tag, env, volumes,
+                                                      log=log_callback)
+
+        # Slots switched off: fold them away and publish in place again, on
+        # the port the app listens on inside the container.
+        released_port = SlotDeployService.release_slots(app, log=log_callback)
+        if released_port and released_port != app.port:
+            app.port = released_port
+            ports = [f"{app.port}:{app.port}"]
 
         # ---- switchover: past this line the live container is gone ---------
         existing = DockerService.get_container(container_name)
@@ -414,11 +449,6 @@ class DeploymentService:
                 log_callback("Stopping existing container...")
             DockerService.stop_container(container_name)
             DockerService.remove_container(container_name)
-
-        # Attach any managed volumes so app data persists across redeploys
-        # (each returns a `name:/mount[:ro]` spec for `docker run -v`).
-        from app.services.volume_service import VolumeService
-        volumes = VolumeService.run_args(app)
 
         # Run new container
         if log_callback:
@@ -438,6 +468,13 @@ class DeploymentService:
             from app.services.worker_process_service import (
                 WorkerProcessService, connect_shared_network)
             connect_shared_network(app, container_name)
+            if released_port:
+                # Leaving slots moved app.port back; nginx has to follow.
+                db.session.commit()
+                from app.services.site_domain_service import SiteDomainService
+                if app.live_domains:
+                    SiteDomainService.write_app_vhost(app)
+                    SlotDeployService._reapply_vhost_extras(app)
             # Procfile worker/scheduler lines run as siblings of the same image
             # (plan 86 §C3). Best-effort: the web process is already live.
             workers = WorkerProcessService.deploy(
@@ -587,7 +624,7 @@ class DeploymentService:
             if not deploy_result.get('success'):
                 rollback_deployment.status = 'failed'
                 rollback_deployment.error_message = deploy_result.get('error')
-                app.status = 'error'
+                app.status = 'running' if deploy_result.get('still_serving') else 'error'
                 db.session.commit()
                 return {
                     'success': False,
