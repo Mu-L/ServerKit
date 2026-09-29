@@ -1293,10 +1293,11 @@ def update_app(app_id):
     # Validate before anything is assigned, so a bad setting leaves the app
     # untouched rather than half-updated in the session.
     if 'deploy_settings' in data:
+        from app.exceptions import ValidationError
         from app.services import deploy_settings
         _, error = deploy_settings.validate(data['deploy_settings'])
         if error:
-            return jsonify({'error': error}), 400
+            raise ValidationError(error)
 
     if 'name' in data:
         app.name = data['name']
