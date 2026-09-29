@@ -1290,6 +1290,14 @@ def update_app(app_id):
 
     data = request.get_json()
 
+    # Validate before anything is assigned, so a bad setting leaves the app
+    # untouched rather than half-updated in the session.
+    if 'deploy_settings' in data:
+        from app.services import deploy_settings
+        _, error = deploy_settings.validate(data['deploy_settings'])
+        if error:
+            return jsonify({'error': error}), 400
+
     if 'name' in data:
         app.name = data['name']
     if 'status' in data:
@@ -1305,10 +1313,7 @@ def update_app(app_id):
         app.healthcheck_path = hc or None
     if 'deploy_settings' in data:
         from app.services import deploy_settings
-        _, error = deploy_settings.update(app, data['deploy_settings'])
-        if error:
-            db.session.rollback()
-            return jsonify({'error': error}), 400
+        deploy_settings.update(app, data['deploy_settings'])
     if 'root_path' in data:
         app.root_path = data['root_path']
     if 'docker_image' in data:
