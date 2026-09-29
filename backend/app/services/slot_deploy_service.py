@@ -501,6 +501,52 @@ class SlotDeployService:
         db.session.commit()
 
     @classmethod
+    def stop_standby(cls, app) -> None:
+        """Stop the app's warm standby now (the app itself is being stopped)."""
+        for slot in AppSlot.query.filter_by(application_id=app.id, state='standby').all():
+            cls._stop_standby(slot)
+
+    @classmethod
+    def containers(cls, app) -> list:
+        """The live slot, the standby and the Procfile workers, for listings.
+
+        The live container is service ``web`` (what logs and the terminal
+        open by default); the standby is listed as ``standby`` so it is visible
+        but never mistaken for the release that serves.
+        """
+        import json
+        from app.services.docker_service import DockerService
+        from app.services.worker_process_service import container_prefix
+        live = live_container_name(app)
+        rows = AppSlot.query.filter_by(application_id=app.id).all()
+        slot_names = {r.container_name for r in rows if r.container_name}
+        prefix = container_prefix(app)
+        listed = DockerService.run(
+            ['ps', '-a', '--filter', f'name=^serverkit-slot-{app.id}-',
+             '--filter', f'name=^{legacy_container_name(app)}$',
+             '--filter', f'name=^{prefix}',
+             '--format', '{{json .}}'], timeout=30)
+        result = []
+        for line in (listed.get('output') or '').splitlines() if listed.get('success') else []:
+            try:
+                c = json.loads(line)
+            except ValueError:
+                continue
+            name = c.get('Names') or ''
+            if name == live:
+                service = 'web'
+            elif name in slot_names:
+                service = 'standby'
+            elif name.startswith(prefix):
+                service = name[len(prefix):]
+            else:
+                continue        # a stale slot container no row points at
+            result.append({'id': c.get('ID'), 'name': name, 'service': service,
+                           'state': (c.get('State') or '').lower()})
+        order = {'web': 0, 'standby': 2}
+        return sorted(result, key=lambda c: (order.get(c['service'], 1), c['service']))
+
+    @classmethod
     def sweep_standby(cls) -> Dict:
         """Stop warm standbys whose time is up (a builtin periodic tick).
 

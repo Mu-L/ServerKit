@@ -70,6 +70,8 @@ def _is_single_container_app(app):
     """
     if app.server_id or app.compose_file or not app.root_path:
         return False
+    if getattr(app, 'slot_deploys_enabled', False) and app.active_slot:
+        return True     # a slot app runs one live container (plan 87)
     if not app.buildpack_type:
         return False
     return not any(
@@ -80,12 +82,13 @@ def _is_single_container_app(app):
 
 
 def _app_container_name(app):
-    """The single container a build-pack deploy creates for this app.
+    """The single container serving this app.
 
-    Must match ``DeploymentService._deploy_docker``, which names it
-    ``serverkit-app-<id>``.
+    ``serverkit-app-<id>`` for an in-place deploy (``DeploymentService.
+    _deploy_docker``); the live slot's container for a slot app (plan 87).
     """
-    return f'serverkit-app-{app.id}'
+    from app.services.slot_deploy_service import live_container_name
+    return live_container_name(app)
 
 
 def _ensure_local_image_compose(app):
@@ -199,6 +202,10 @@ def stop_application(app, *, user_id=None):
             result = ({'success': True} if not DockerService.get_container(container)
                       else DockerService.stop_container(container))
             WorkerProcessService.each(app, 'stop')
+            # A stopped app keeps no warm standby running behind it.
+            if getattr(app, 'slot_deploys_enabled', False):
+                from app.services.slot_deploy_service import SlotDeployService
+                SlotDeployService.stop_standby(app)
         else:
             result = DockerService.compose_down(
                 app.root_path,

@@ -464,3 +464,68 @@ def test_slots_api_round_trip(app, world, client, auth_headers):
     resp = client.put(f'/api/v1/apps/{row.id}/slots', headers=auth_headers, json={'enabled': 'yes'})
     assert resp.status_code == 400
 
+
+# ── §E: everything else that touches the container follows the live slot ────
+
+def test_restart_and_stop_act_on_the_live_slot_and_stop_the_standby(app, world, monkeypatch):
+    from app.services import application_lifecycle_service as lifecycle
+    from app.services.worker_process_service import WorkerProcessService
+    monkeypatch.setattr(WorkerProcessService, 'each', classmethod(lambda cls, app, action: None))
+    restarted = []
+    monkeypatch.setattr(DockerService, 'restart_container', staticmethod(
+        lambda name: restarted.append(name) or {'success': True}))
+    row = _live_app(world)
+    _two_deploys(world, row)                              # live b, standby a
+
+    lifecycle.restart_application(row)
+    assert restarted == [f'serverkit-slot-{row.id}-b']
+
+    lifecycle.stop_application(row)
+    assert world.containers[f'serverkit-slot-{row.id}-b']['running'] is False
+    assert world.containers[f'serverkit-app-{row.id}']['running'] is False, 'standby stopped too'
+    assert AppSlot.query.filter_by(application_id=row.id, slot='a').one().state == 'stopped'
+
+
+def test_container_listing_shows_live_standby_and_workers(app, world, monkeypatch):
+    import json
+    row = _live_app(world)
+    _two_deploys(world, row)
+    listed = [{'ID': '1', 'Names': f'serverkit-app-{row.id}', 'State': 'running'},
+              {'ID': '2', 'Names': f'serverkit-slot-{row.id}-b', 'State': 'running'},
+              {'ID': '3', 'Names': f'serverkit-app-{row.id}-worker', 'State': 'running'}]
+    monkeypatch.setattr(DockerService, 'run', classmethod(lambda cls, args, **kw: {
+        'success': True, 'output': '\n'.join(json.dumps(c) for c in listed)}))
+
+    containers = DockerService.get_all_app_containers(row)
+
+    assert [(c['name'], c['service']) for c in containers] == [
+        (f'serverkit-slot-{row.id}-b', 'web'),
+        (f'serverkit-app-{row.id}-worker', 'worker'),
+        (f'serverkit-app-{row.id}', 'standby'),
+    ]
+    # Status, stats, terminal and logs resolve the live container by id.
+    assert DockerService.get_app_container_id(row) == f'serverkit-slot-{row.id}-b'
+
+
+def test_a_vhost_restore_point_brings_back_the_slot_it_pointed_at(app, world, monkeypatch):
+    from app.services import restore_point_adapter_nginx as adapter
+    from app.services.nginx_service import NginxService
+    row = _live_app(world)
+    _two_deploys(world, row)                              # live b; vhost -> b's port
+    old_vhost = 'server {\n    location / {\n        proxy_pass http://127.0.0.1:8100;\n    }\n}\n'
+    monkeypatch.setattr(adapter.os.path, 'exists', lambda p: True)
+    monkeypatch.setattr(NginxService, 'read_vhost', classmethod(lambda cls, name: old_vhost))
+
+    payload = adapter.capture(row.name)
+    # The captured bytes point at 8100 = slot a, whatever app.port says now.
+    assert payload['slot'] == {'active_slot': 'a', 'port': 8100}
+
+    world.containers[f'serverkit-app-{row.id}']['running'] = False   # standby went cold
+    monkeypatch.setattr(NginxService, 'write_vhost', classmethod(
+        lambda cls, name, content, enable=True: {'success': True}))
+    result = adapter.restore(row.name, payload)
+
+    assert result['success'], result
+    assert row.active_slot == 'a' and row.port == 8100
+    assert world.containers[f'serverkit-app-{row.id}']['running'] is True
+
