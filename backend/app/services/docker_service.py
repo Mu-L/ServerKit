@@ -515,8 +515,14 @@ class DockerService:
                 return [{'id': container_id, 'name': container_id, 'service': 'main', 'state': 'unknown'}]
             return []
 
-        containers = cls.compose_ps(root_path, compose_file=compose_file)
         app_id = cls._app_attr(app, 'id')
+        if (app_id and not isinstance(app, dict)
+                and cls._app_attr(app, 'slot_deploys_enabled') and cls._app_attr(app, 'active_slot')):
+            # A slot app (plan 87): the live slot, its standby, its workers
+            # (for compose, the live and standby projects).
+            from app.services.slot_deploy_service import SlotDeployService
+            return SlotDeployService.containers(app)
+        containers = cls.compose_ps(root_path, compose_file=compose_file)
         if not containers and app_id and cls._app_attr(app, 'buildpack_type'):
             # A build-pack app is not a compose project: its deploy runs
             # `serverkit-app-<id>` plus one `serverkit-app-<id>-<process>` per

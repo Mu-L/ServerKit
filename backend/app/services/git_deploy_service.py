@@ -10,6 +10,7 @@ from typing import Dict, Optional
 
 from app.utils.system import run_checked
 from app.utils.git_security import git_argv, git_env, validate_ref_name
+from app.services.deploy_lock import with_deploy_lock
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,7 @@ class GitDeployService:
     """Service for managing git-based deployments."""
 
     @classmethod
+    @with_deploy_lock('webhook deploy')
     def deploy(cls, app_id: int, webhook_id: int = None, commit_sha: str = None,
                commit_message: str = None, branch: str = None,
                triggered_by: str = 'webhook') -> Dict:
@@ -102,14 +104,17 @@ class GitDeployService:
 
             if not pull_result.get('success'):
                 raise Exception(f"Git pull failed: {pull_result.get('error')}")
+            if not deployment.commit_sha:
+                # A manual deploy names no commit: record what the pull
+                # checked out, never what was live before it (plan 87 §A2).
+                head = run_checked(['git', 'rev-parse', 'HEAD'], cwd=app.root_path, timeout=10)
+                if head['success']:
+                    deployment.commit_sha = head['output'].strip()[:40] or None
 
             # Step 3: Restart application
             logs.append("\n=== Restarting application ===")
 
-            if webhook and webhook.zero_downtime:
-                restart_result = cls._zero_downtime_restart(app)
-            else:
-                restart_result = cls._standard_restart(app)
+            restart_result = cls._standard_restart(app)
 
             deployment.deploy_output = '\n'.join(logs) + '\n' + restart_result.get('output', '')
 
@@ -164,6 +169,7 @@ class GitDeployService:
             }
 
     @classmethod
+    @with_deploy_lock('rollback')
     def rollback(cls, app_id: int, target_version: int = None) -> Dict:
         """
         Rollback to a previous deployment version.
@@ -404,6 +410,16 @@ class GitDeployService:
                 except Exception:
                     pass
 
+        if getattr(app, 'slot_deploys_enabled', False):
+            # A slot app (plan 87 §C) never stops its live stack: the whole
+            # deploy — preflight, slot boot, gate, switch, watch — runs through
+            # the deploy pipeline, which records it as a Deployment too. The
+            # deploy lock is already held by this thread.
+            from app.services.deployment_service import DeploymentService
+            result = DeploymentService._deploy_locked(app.id, None, False, 'webhook', None, _log)
+            return {'success': bool(result.get('success')), 'output': '\n'.join(output),
+                    'error': result.get('error')}
+
         checks = preflight.preflight_compose_project(app.root_path, log=_log)
         if not checks.ok:
             # Nothing was stopped — the previous release is still serving.
@@ -428,89 +444,6 @@ class GitDeployService:
             'output': '\n'.join(output),
             'error': up_result.get('error')
         }
-
-    @classmethod
-    def _zero_downtime_restart(cls, app) -> Dict:
-        """Zero-downtime restart using rolling update."""
-        from app.services.docker_service import DockerService
-
-        output = []
-
-        try:
-            # Build new images first
-            build_result = run_checked(['docker', 'compose', 'build'],
-                                       cwd=app.root_path, timeout=300)
-            output.append(f"Build: {build_result['output']}")
-
-            if not build_result['success']:
-                return {
-                    'success': False,
-                    'error': build_result['error'],
-                    'output': '\n'.join(output)
-                }
-
-            # Rolling update - start new containers before stopping old
-            up_result = run_checked(
-                ['docker', 'compose', 'up', '-d', '--no-deps', '--scale', 'web=2'],
-                cwd=app.root_path, timeout=120)
-
-            # Wait for the new container to be healthy. When a health-check path
-            # is declared, poll it instead of a blind fixed wait (plan 17 #4).
-            output.append(cls._wait_for_health(app))
-
-            # Scale back down
-            scale_result = run_checked(
-                ['docker', 'compose', 'up', '-d', '--no-deps', '--scale', 'web=1'],
-                cwd=app.root_path, timeout=60)
-
-            output.append(f"Rolling update completed")
-
-            return {
-                'success': True,
-                'output': '\n'.join(output)
-            }
-
-        except subprocess.TimeoutExpired:
-            return {'success': False, 'error': 'Restart timed out', 'output': '\n'.join(output)}
-        except Exception as e:
-            return {'success': False, 'error': str(e), 'output': '\n'.join(output)}
-
-    @classmethod
-    def _wait_for_health(cls, app, timeout: int = 30, fallback: int = 5) -> str:
-        """Block until the app answers its health-check path, or time out.
-
-        Falls back to a fixed wait when no path/port is declared, preserving the
-        previous behavior. Best-effort — never raises.
-        """
-        import time
-
-        path = getattr(app, 'healthcheck_path', None)
-        port = getattr(app, 'port', None)
-        if not path or not port:
-            time.sleep(fallback)
-            return f"Waited {fallback}s (no health check configured)"
-
-        import urllib.request
-        import urllib.error
-
-        url = f"http://127.0.0.1:{port}{path if path.startswith('/') else '/' + path}"
-        deadline = time.time() + timeout
-        last = None
-        while time.time() < deadline:
-            try:
-                with urllib.request.urlopen(url, timeout=3) as resp:
-                    if 200 <= resp.status < 400:
-                        return f"Health check passed ({url} -> {resp.status})"
-                    last = f"status {resp.status}"
-            except urllib.error.HTTPError as exc:
-                if 200 <= exc.code < 500:
-                    # a 4xx still means the app is up and routing
-                    return f"Health check reachable ({url} -> {exc.code})"
-                last = f"HTTP {exc.code}"
-            except Exception as exc:  # not up yet
-                last = str(exc)
-            time.sleep(1)
-        return f"Health check did not pass within {timeout}s ({url}; last: {last})"
 
     @classmethod
     def _run_script(cls, script: str, cwd: str) -> Dict:

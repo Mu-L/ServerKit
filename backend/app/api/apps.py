@@ -1290,6 +1290,15 @@ def update_app(app_id):
 
     data = request.get_json()
 
+    # Validate before anything is assigned, so a bad setting leaves the app
+    # untouched rather than half-updated in the session.
+    if 'deploy_settings' in data:
+        from app.exceptions import ValidationError
+        from app.services import deploy_settings
+        _, error = deploy_settings.validate(data['deploy_settings'])
+        if error:
+            raise ValidationError(error)
+
     if 'name' in data:
         app.name = data['name']
     if 'status' in data:
@@ -1303,6 +1312,9 @@ def update_app(app_id):
     if 'healthcheck_path' in data:
         hc = (data['healthcheck_path'] or '').strip()
         app.healthcheck_path = hc or None
+    if 'deploy_settings' in data:
+        from app.services import deploy_settings
+        deploy_settings.update(app, data['deploy_settings'])
     if 'root_path' in data:
         app.root_path = data['root_path']
     if 'docker_image' in data:
@@ -1418,6 +1430,19 @@ def apply_image_update(app_id):
         return jsonify({'error': 'Application not found'}), 404
     if not _can_edit_app(user, app):
         return jsonify({'error': 'Access denied'}), 403
+
+    # A slot app never recreates its live stack in place: the newest images
+    # go through a slot deploy (pulled in its preflight, gated, switched).
+    from app.services.slot_deploy_service import SlotDeployService
+    if SlotDeployService.is_compose_slot_app(app):
+        from app.services.deployment_job_service import DeploymentJobService
+        queued = DeploymentJobService.enqueue_app_deploy(app, user_id=current_user_id,
+                                                         trigger='image_update')
+        if not queued.get('success'):
+            from app.exceptions import ConflictError
+            raise ConflictError(queued.get('error') or 'Failed to queue the update')
+        return jsonify({'message': 'Image update queued as a slot deploy',
+                        'deploy_job_id': queued['job_id'], 'app': app.to_dict()}), 202
 
     # Auto-apply is only safe for compose-managed apps; recreating a standalone
     # container would need its full run spec, which we don't store.

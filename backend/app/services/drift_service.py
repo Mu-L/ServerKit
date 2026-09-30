@@ -421,11 +421,8 @@ def _nginx_repair(app_id):
     # write_app_vhost regenerates from the template, which drops the WAF
     # include; re-wire it for apps with an enforcing policy so a repair
     # never strips protection the DB still records (plan 82 §F.1).
-    from app.models.waf_policy import WafPolicy
-    policy = WafPolicy.query.filter_by(application_id=app_id).first()
-    if policy is not None and policy.mode in ('block', 'detect'):
-        from app.services.waf_service import WafService
-        WafService.apply(app_id)
+    from app.services.waf_service import WafService
+    WafService.reapply_if_enforcing(app_id)
 
     reload_res = NginxService.reload()
     return {

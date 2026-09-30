@@ -609,10 +609,14 @@ class BuildService:
 
     @classmethod
     def build(cls, app_id: int, no_cache: bool = False,
-              log_callback: Callable[[str], None] = None) -> Dict:
+              log_callback: Callable[[str], None] = None,
+              image_tag: str = None) -> Dict:
         """Build an application using configured method.
 
-        Auto-detects build method if set to 'auto'.
+        Auto-detects build method if set to 'auto'. ``image_tag`` names the
+        image; a deploy passes an immutable per-deployment tag so a rollback
+        redeploys the image that actually ran, not whatever ``:latest`` is now
+        (plan 87 §A1).
         """
         build_config = cls.get_app_build_config(app_id)
         if not build_config:
@@ -633,6 +637,7 @@ class BuildService:
                 app_id=app_id,
                 app_path=app_path,
                 dockerfile_path=build_config.get('dockerfile_path', 'Dockerfile'),
+                image_tag=image_tag,
                 build_args=build_config.get('build_args'),
                 no_cache=no_cache or not build_config.get('cache_enabled', True),
                 timeout=timeout,
@@ -649,6 +654,7 @@ class BuildService:
                 app_path=app_path,
                 plan=build_config.get('buildpack_plan'),
                 overrides=build_config.get('buildpack_overrides'),
+                image_tag=image_tag,
                 build_args=build_config.get('build_args'),
                 no_cache=no_cache or not build_config.get('cache_enabled', True),
                 timeout=timeout,
@@ -659,6 +665,7 @@ class BuildService:
             return cls.build_with_nixpacks(
                 app_id=app_id,
                 app_path=app_path,
+                image_tag=image_tag,
                 env_vars=build_config.get('env_vars'),
                 build_cmd=build_config.get('custom_build_cmd'),
                 start_cmd=build_config.get('custom_start_cmd'),

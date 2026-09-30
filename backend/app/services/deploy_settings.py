@@ -1,0 +1,133 @@
+"""Per-app deploy settings (plan 87).
+
+Stored as one JSON object on ``Application.deploy_settings``; NULL or a
+missing key means the default below. ``effective(app)`` is what every reader
+uses, so a default changes in one place.
+"""
+import json
+
+DEFAULTS = {
+    # Health gate (§A3): how long a new release may take to answer, whether a
+    # 4xx on the health path still counts as up, and how many answers in a row
+    # it takes.
+    'healthcheck_timeout': 120,
+    'healthcheck_allow_4xx': False,
+    'healthcheck_consecutive': 3,
+    # How many deployments' images stay on disk for rollback (§A1).
+    'keep_images': 3,
+    # Slot deploys (§B): how long to watch a release after the switch, how
+    # long the old slot stays warm, and the operator's word that two copies
+    # sharing the app's volumes for a moment is safe.
+    'watch_seconds': 60,
+    'standby_warm_minutes': 10,
+    'slot_volumes_confirmed': False,
+    # Release phase (§D): a command to run once before the switch (overrides
+    # the Procfile's release: line), whether to dump the app's databases
+    # first, and the announced-downtime fallback for schema changes that
+    # cannot stay backward-compatible for one deploy.
+    'release_command': None,
+    'snapshot_databases': True,
+    'stop_old_before_release': False,
+    # Compose slots (§C), written by the panel, never by the settings API:
+    # the web service, the port it published before slots, and whether the
+    # stateful services have moved to the shared data project.
+    'compose_web': None,
+    'compose_web_port': None,
+    'compose_data_split': False,
+}
+
+# key -> (type, min, max). Anything outside is rejected, not clamped: a typo'd
+# timeout of 0 would make every deploy fail.
+_RULES = {
+    'healthcheck_timeout': (int, 5, 1800),
+    'healthcheck_allow_4xx': (bool, None, None),
+    'healthcheck_consecutive': (int, 1, 20),
+    'keep_images': (int, 1, 20),
+    'watch_seconds': (int, 0, 900),
+    'standby_warm_minutes': (int, 0, 1440),
+    'slot_volumes_confirmed': (bool, None, None),
+    'release_command': (str, None, 500),
+    'snapshot_databases': (bool, None, None),
+    'stop_old_before_release': (bool, None, None),
+}
+
+
+def stored(app) -> dict:
+    raw = getattr(app, 'deploy_settings', None)
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def effective(app) -> dict:
+    merged = dict(DEFAULTS)
+    merged.update({k: v for k, v in stored(app).items() if k in DEFAULTS})
+    return merged
+
+
+def get(app, key):
+    return effective(app)[key]
+
+
+def validate(changes) -> tuple:
+    """``(clean, error)``: the recognised keys coerced to their types."""
+    if not isinstance(changes, dict):
+        return None, 'deploy_settings must be an object'
+    clean = {}
+    for key, value in changes.items():
+        if key not in _RULES:
+            return None, f'Unknown deploy setting: {key}'
+        kind, low, high = _RULES[key]
+        if value is None:
+            clean[key] = None          # back to the default
+            continue
+        if kind is bool:
+            if not isinstance(value, bool):
+                return None, f'{key} must be true or false'
+            clean[key] = value
+            continue
+        if kind is str:
+            if not isinstance(value, str):
+                return None, f'{key} must be text'
+            if len(value) > high:
+                return None, f'{key} must be at most {high} characters'
+            clean[key] = value.strip() or None
+            continue
+        if isinstance(value, bool):
+            return None, f'{key} must be a number'
+        try:
+            number = kind(value)
+        except (TypeError, ValueError):
+            return None, f'{key} must be a number'
+        if (low is not None and number < low) or (high is not None and number > high):
+            return None, f'{key} must be between {low} and {high}'
+        clean[key] = number
+    return clean, None
+
+
+def set_internal(app, key, value) -> None:
+    """Record a panel-owned setting (no validation, no commit)."""
+    if key not in DEFAULTS or key in _RULES:
+        raise KeyError(key)
+    current = stored(app)
+    current[key] = value
+    app.deploy_settings = json.dumps(current)
+
+
+def update(app, changes) -> tuple:
+    """Merge validated ``changes`` into the app's stored settings (no commit)."""
+    clean, error = validate(changes)
+    if error:
+        return None, error
+    current = stored(app)
+    for key, value in clean.items():
+        if value is None:
+            current.pop(key, None)
+        else:
+            current[key] = value
+    app.deploy_settings = json.dumps(current) if current else None
+    return effective(app), None

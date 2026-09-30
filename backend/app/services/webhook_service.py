@@ -42,8 +42,7 @@ class WebhookService:
                        source_branch: str = 'main', local_repo_name: str = None,
                        sync_direction: str = 'pull', auto_sync: bool = True,
                        app_id: int = None, deploy_on_push: bool = False,
-                       pre_deploy_script: str = None, post_deploy_script: str = None,
-                       zero_downtime: bool = False) -> Dict:
+                       pre_deploy_script: str = None, post_deploy_script: str = None) -> Dict:
         """Create a new webhook configuration."""
         from app import db
         from app.models import GitWebhook, Application
@@ -85,7 +84,6 @@ class WebhookService:
                 deploy_on_push=deploy_on_push,
                 pre_deploy_script=pre_deploy_script,
                 post_deploy_script=post_deploy_script,
-                zero_downtime=zero_downtime
             )
 
             db.session.add(webhook)
@@ -136,8 +134,6 @@ class WebhookService:
                 webhook.pre_deploy_script = data['preDeployScript'] if data['preDeployScript'] else None
             if 'postDeployScript' in data:
                 webhook.post_deploy_script = data['postDeployScript'] if data['postDeployScript'] else None
-            if 'zeroDowntime' in data:
-                webhook.zero_downtime = data['zeroDowntime']
 
             db.session.commit()
 

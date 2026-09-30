@@ -77,7 +77,6 @@ def create_webhook():
         deploy_on_push=data.get('deployOnPush', False),
         pre_deploy_script=data.get('preDeployScript'),
         post_deploy_script=data.get('postDeployScript'),
-        zero_downtime=data.get('zeroDowntime', False)
     )
 
     if result.get('success'):

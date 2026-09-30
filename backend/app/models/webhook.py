@@ -31,7 +31,6 @@ class GitWebhook(TimestampMixin, db.Model):
     deploy_on_push = db.Column(db.Boolean, default=False)
     pre_deploy_script = db.Column(db.Text, nullable=True)
     post_deploy_script = db.Column(db.Text, nullable=True)
-    zero_downtime = db.Column(db.Boolean, default=False)
 
     # Status tracking
     is_active = db.Column(db.Boolean, default=True)
@@ -61,7 +60,6 @@ class GitWebhook(TimestampMixin, db.Model):
             'deploy_on_push': self.deploy_on_push,
             'pre_deploy_script': self.pre_deploy_script,
             'post_deploy_script': self.post_deploy_script,
-            'zero_downtime': self.zero_downtime,
             'is_active': self.is_active,
             'last_sync_at': self.last_sync_at.isoformat() if self.last_sync_at else None,
             'last_sync_status': self.last_sync_status,

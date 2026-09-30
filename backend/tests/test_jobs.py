@@ -196,18 +196,20 @@ class TestBuiltins:
         assert 'builtin.request_metrics' in kinds
         # Crash-loop visibility (plan 86 §E1), also once a minute.
         assert 'builtin.crash_loop' in kinds
-        assert len([k for k in kinds if k.startswith('builtin.')]) == 20
+        # Warm standby slots are stopped once their time is up (plan 87 §B).
+        assert 'builtin.slot_standby' in kinds
+        assert len([k for k in kinds if k.startswith('builtin.')]) == 21
 
         builtin_handlers.seed_builtin_schedules()
-        # 20 builtin.* schedules (incl. the request-metrics and crash-loop ticks, restore-point/job/telemetry retention,
+        # 21 builtin.* schedules (incl. the request-metrics, crash-loop and slot-standby ticks, restore-point/job/telemetry retention,
         # the monitor sweep, security-feed check, recycle-bin retention and the
         # fleet threshold check) + login-link/SSO reapers + drift/FIM/bandwidth
         # sweeps + the host doctor sweep AND the fleet doctor sweep (plan 26)
         # + the setup-health nag (plan 22).
-        assert ScheduledJob.query.count() == 28
+        assert ScheduledJob.query.count() == 29
         # Seeding twice doesn't duplicate.
         builtin_handlers.seed_builtin_schedules()
-        assert ScheduledJob.query.count() == 28
+        assert ScheduledJob.query.count() == 29
 
 
 class TestApi:

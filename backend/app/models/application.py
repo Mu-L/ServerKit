@@ -54,6 +54,12 @@ class Application(JsonColumnMixin, TimestampMixin, SoftDeleteMixin, db.Model):
     # Populated from a manifest at import, editable in Settings. NULL => no gate
     # (the restart falls back to a fixed wait).
     healthcheck_path = db.Column(db.String(255), nullable=True)
+    # JSON: health-gate timeout / 4xx rule and the other deploy knobs
+    # (plan 87). NULL = defaults; read through app.services.deploy_settings.
+    deploy_settings = db.Column(db.Text, nullable=True)
+    # A/B slot deploys (plan 87 §B): opt-in, and which slot is live.
+    slot_deploys_enabled = db.Column(db.Boolean, nullable=False, server_default='0', default=False)
+    active_slot = db.Column(db.String(1), nullable=True)
 
     # Docker specific
     docker_image = db.Column(db.String(200), nullable=True)
@@ -218,6 +224,9 @@ class Application(JsonColumnMixin, TimestampMixin, SoftDeleteMixin, db.Model):
             'python_version': self.python_version,
             'port': self.port,
             'healthcheck_path': self.healthcheck_path,
+            'deploy_settings': self._deploy_settings(),
+            'slot_deploys_enabled': bool(self.slot_deploys_enabled),
+            'active_slot': self.active_slot,
             'root_path': self.root_path,
             'docker_image': self.docker_image,
             'container_id': self.container_id,
@@ -313,6 +322,10 @@ class Application(JsonColumnMixin, TimestampMixin, SoftDeleteMixin, db.Model):
                 'status': self.linked_app.status
             }
         return result
+
+    def _deploy_settings(self):
+        from app.services.deploy_settings import effective
+        return effective(self)
 
     def __repr__(self):
         return f'<Application {self.name}>'
